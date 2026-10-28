@@ -1,0 +1,19 @@
+# Optional: a real PostgreSQL 16 database for local use.
+# First set POSTGRES_PASSWORD in .env (see .env.example). Then start it with:  docker compose up -d
+# Then set DATABASE_URL in .env (see .env.example) and run: npm run dev
+# The password only takes effect when the database is first created; see .env.example to change it later.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: costing
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the .env file (see .env.example)}
+      POSTGRES_DB: costing
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - costing-data:/var/lib/postgresql/data
+
+volumes:
+  costing-data:
