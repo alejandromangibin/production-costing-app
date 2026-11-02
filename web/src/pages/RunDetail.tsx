@@ -55,11 +55,16 @@ export function RunDetailPage() {
           </button>
         )}
       </div>
+      <p className="hint">
+        {run.createdByName
+          ? `Recorded by ${run.createdByName} on ${dateText(run.createdAt)}.`
+          : `Recorded on ${dateText(run.createdAt)} (before the app kept track of who recorded runs).`}
+      </p>
 
       {run.status === 'void' && (
         <div className="note error">
-          This run was voided{run.voidedAt ? ` on ${dateText(run.voidedAt)}` : ''}: {run.voidReason}. It is left out of the expiry list and
-          margins.
+          This run was voided{run.voidedByName ? ` by ${run.voidedByName}` : ''}
+          {run.voidedAt ? ` on ${dateText(run.voidedAt)}` : ''}: {run.voidReason}. It is left out of the expiry list and margins.
         </div>
       )}
       {voiding && (

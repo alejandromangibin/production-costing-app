@@ -67,7 +67,7 @@ describe('one business cannot see or change another', () => {
     }
 
     // Nothing was changed.
-    expect((await A.get(`/api/runs/${run.id}`)).body.status).toBe('saved');
+    expect((await A.get(`/api/runs/${run.id}`)).body).toMatchObject({ status: 'saved', voidedByName: null });
     expect((await A.get(`/api/products/${ca.pork.id}`)).body.name).toBe('Pork Siomai');
   });
 

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { type Request, Router } from 'express';
 import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
@@ -6,12 +6,18 @@ import { badRequest } from '../errors';
 import { packSizeCreate, packSizeUpdate, productCreate, productUpdate, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
 import { addPackSize, createProduct, getProduct, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
-import { getRun, listRuns, previewRun, runsCsv, saveRun, voidRun } from '../services/runs';
+import { type Actor, getRun, listRuns, previewRun, runsCsv, saveRun, voidRun } from '../services/runs';
 
 const id = (value: unknown): number => {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1) throw badRequest('Invalid id');
   return n;
+};
+
+/** The signed-in person, as saved on records they create or change (name, or email if no name). */
+const actor = (req: Request): Actor => {
+  const { user } = req.auth!;
+  return { id: user.id, name: user.name.trim() || user.email };
 };
 
 /**
@@ -49,7 +55,7 @@ export function dataRoutes(kit: AuthKit) {
     res.json(await previewRun(req.tdb!, runBody.parse(req.body)));
   });
   r.post('/runs', write, async (req, res) => {
-    const runId = await saveRun(req.tdb!, runBody.parse(req.body));
+    const runId = await saveRun(req.tdb!, runBody.parse(req.body), actor(req));
     res.status(201).json(await getRun(req.tdb!, runId));
   });
   r.get('/runs', async (req, res) => {
@@ -67,7 +73,7 @@ export function dataRoutes(kit: AuthKit) {
     res.json(await getRun(req.tdb!, id(req.params.id)));
   });
   r.post('/runs/:id/void', write, async (req, res) => {
-    res.json(await voidRun(req.tdb!, id(req.params.id), voidBody.parse(req.body).reason));
+    res.json(await voidRun(req.tdb!, id(req.params.id), voidBody.parse(req.body).reason, actor(req)));
   });
 
   // ---- Reports ----

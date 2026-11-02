@@ -122,14 +122,20 @@ export async function previewRun(db: Queryable, body: RunBody): Promise<RunPrevi
   return { result, products };
 }
 
-export async function saveRun(db: Db, body: RunBody): Promise<number> {
+/** The person doing something, as saved on the record (decision D-25). */
+export interface Actor {
+  id: number;
+  name: string;
+}
+
+export async function saveRun(db: Db, body: RunBody, actor: Actor): Promise<number> {
   return db.tx(async (q) => {
     const prepared = await prepare(q, body);
     const result = calculateRun(prepared.input);
 
     const run = await q.query<{ id: number }>(
-      'INSERT INTO runs (run_date, note, total_cost_cents) VALUES ($1, $2, $3) RETURNING id',
-      [body.runDate, body.note, result.totalCostCents],
+      'INSERT INTO runs (run_date, note, total_cost_cents, created_by_user_id, created_by_name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [body.runDate, body.note, result.totalCostCents, actor.id, actor.name],
     );
     const runId = run.rows[0]!.id;
 
@@ -187,7 +193,7 @@ export async function getRun(q: Queryable, id: number) {
   const run = (
     await q.query(
       `SELECT id, run_date::text AS run_date, note, status, void_reason, voided_at::text AS voided_at,
-              total_cost_cents, created_at::text AS created_at
+              total_cost_cents, created_at::text AS created_at, created_by_name, voided_by_name
        FROM runs WHERE id = $1`,
       [id],
     )
@@ -270,11 +276,20 @@ export async function listRuns(q: Queryable, f: z.infer<typeof runsQuery>) {
   return rows.map((r) => camel(r));
 }
 
-export async function voidRun(db: Db, id: number, reason: string) {
-  const run = (await db.query('SELECT status FROM runs WHERE id = $1', [id])).rows[0];
-  if (!run) throw notFound('Run not found');
-  if (run.status === 'void') throw conflict('This run is already voided.');
-  await db.query("UPDATE runs SET status = 'void', void_reason = $2, voided_at = now() WHERE id = $1", [id, reason]);
+export async function voidRun(db: Db, id: number, reason: string, actor: Actor) {
+  // One statement, so two clicks at once cannot both void the run (or overwrite who voided it).
+  const voided = (
+    await db.query(
+      `UPDATE runs SET status = 'void', void_reason = $2, voided_at = now(), voided_by_user_id = $3, voided_by_name = $4
+       WHERE id = $1 AND status = 'saved' RETURNING id`,
+      [id, reason, actor.id, actor.name],
+    )
+  ).rows[0];
+  if (!voided) {
+    const run = (await db.query('SELECT status FROM runs WHERE id = $1', [id])).rows[0];
+    if (!run) throw notFound('Run not found');
+    throw conflict('This run is already voided.');
+  }
   return getRun(db, id);
 }
 

@@ -165,6 +165,26 @@ describe('login', () => {
     expect(r.headers['x-content-type-options']).toBe('nosniff');
     expect(r.headers['content-security-policy']).toContain("frame-ancestors 'none'");
   });
+
+  it('a hosted app lets no other website call it; the dev server is allowed only while developing', async () => {
+    // While developing, the web dev server may call the API.
+    const dev = makeApp(db, { corsOrigin: 'http://localhost:5173' });
+    const devReply = await request(dev).get('/api/health').set('Origin', 'http://localhost:5173');
+    expect(devReply.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+
+    // Hosted (no CORS_ORIGIN): no other origin is announced, and changes from the dev address are refused.
+    const hosted = makeApp(db, { corsOrigin: '' });
+    const reply = await request(hosted).get('/api/health').set('Origin', 'http://localhost:5173');
+    expect(reply.headers['access-control-allow-origin']).toBeUndefined();
+    expect(reply.headers['access-control-allow-credentials']).toBeUndefined();
+    const { agent } = await createBusiness(hosted, db, 'Frozen Foods', 'owner@a.test');
+    const fromDev = await agent.post('/api/products').set('Origin', 'http://localhost:5173').send({ code: 'X', name: 'X', shelfLifeDays: 1 });
+    expect(fromDev.status).toBe(403);
+    expect(fromDev.body.code).toBe('bad_origin');
+    // The app's own pages still work.
+    const own = await agent.post('/api/products').set('Origin', 'http://127.0.0.1:1').set('Host', '127.0.0.1:1').send({ code: 'X', name: 'X', shelfLifeDays: 1 });
+    expect(own.status).toBe(201);
+  });
 });
 
 describe('invites and password resets', () => {

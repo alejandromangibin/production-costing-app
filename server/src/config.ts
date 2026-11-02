@@ -50,6 +50,16 @@ export function needsRealDatabase(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
+ * The web dev server's address, allowed to call the API while developing. A hosted app (production,
+ * or on Render) serves its own pages and allows no other origin unless CORS_ORIGIN is set on purpose.
+ */
+export function corsOriginFor(env: NodeJS.ProcessEnv): string {
+  // Browsers send the origin with no trailing slash, so a pasted "https://x/" must be cleaned to match.
+  const set = env.CORS_ORIGIN?.trim().replace(/\/+$/, '');
+  return set ?? (needsRealDatabase(env) ? '' : 'http://localhost:5173');
+}
+
+/**
  * A warning when a hosted app would send sign-in cookies without the Secure flag, or null.
  * Production with COOKIE_SECURE=false is allowed for plain-http testing, so it only warns.
  * On Render without NODE_ENV=production the cookies are not Secure either.
@@ -121,7 +131,7 @@ export const config = {
   /** Empty means: use the built-in PGlite database. */
   databaseUrl: (process.env.DATABASE_URL ?? '').trim(),
   dataDir: path.resolve(serverDir, process.env.DATA_DIR || '.data'),
-  corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  corsOrigin: corsOriginFor(process.env),
   migrationsDir: path.join(serverDir, 'migrations'),
   webDist: path.join(rootDir, 'web', 'dist'),
   backupsDir: path.join(rootDir, 'backups'),

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { insecureCookieWarning, needsRealDatabase, productionDatabaseProblem, serverDir } from '../src/config';
+import { corsOriginFor, insecureCookieWarning, needsRealDatabase, productionDatabaseProblem, serverDir } from '../src/config';
 import { CONNECT_TIMEOUT_MS, databaseConnectionProblem, logIdleConnectionErrors, postgresPoolConfig } from '../src/db/index';
 import { checkIsolationOrStop, roleProblem } from '../src/startup';
 
@@ -79,6 +79,17 @@ describe('production needs a real database', () => {
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('DATABASE_URL is not set');
     expect(dataDirCreated).toBe(false);
+  });
+
+  it('allows the web dev server only while developing, unless CORS_ORIGIN is set on purpose', () => {
+    expect(corsOriginFor({})).toBe('http://localhost:5173');
+    expect(corsOriginFor({ NODE_ENV: 'development' })).toBe('http://localhost:5173');
+    expect(corsOriginFor({ NODE_ENV: 'production' })).toBe('');
+    expect(corsOriginFor({ RENDER: 'true' })).toBe('');
+    expect(corsOriginFor({ NODE_ENV: 'production', CORS_ORIGIN: 'https://admin.example' })).toBe('https://admin.example');
+    expect(corsOriginFor({ NODE_ENV: 'production', CORS_ORIGIN: '  https://admin.example/  ' })).toBe('https://admin.example');
+    // The example settings file must not switch the dev address on for a host.
+    expect(fs.readFileSync(path.join(serverDir, '..', '.env.example'), 'utf8')).not.toMatch(/^CORS_ORIGIN=/m);
   });
 
   it('warns when a hosted app would send sign-in cookies without the Secure flag', () => {

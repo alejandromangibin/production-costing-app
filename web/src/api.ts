@@ -176,6 +176,9 @@ export interface RunDetail {
   voidedAt: string | null;
   totalCostCents: number;
   createdAt: string;
+  /** Who recorded the run; empty for runs saved before the audit trail existed. */
+  createdByName: string;
+  voidedByName: string | null;
   products: (Omit<ProductResult, 'packings'> & {
     id: number;
     productCode: string;

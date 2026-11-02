@@ -1,7 +1,9 @@
+import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { exportEverything, importEverything } from '../src/backup';
 import type { Db } from '../src/db/index';
 import { scopedDb } from '../src/db/scoped';
+import { acceptToken, inviteStaff } from '../src/services/accounts';
 import { expiryBoard } from '../src/services/reports';
 import {
   type Agent,
@@ -10,6 +12,7 @@ import {
   createBusiness,
   makeApp,
   makeCatalog as makeCatalogFor,
+  PASSWORD,
   openTestDb,
   resetData,
   size,
@@ -163,6 +166,45 @@ describe('runs', () => {
     const blocked = await api.post('/api/runs').send(at01Body(c));
     expect(blocked.status).toBe(400);
     expect(blocked.body.error).toMatch(/archived/);
+  });
+
+  it('records who saved and who voided a run (audit trail)', async () => {
+    const c = await makeCatalog();
+    const saved = (await api.post('/api/runs').send(at01Body(c))).body;
+    expect(saved.createdByName).toBe('Frozen Foods Owner');
+    expect(saved.voidedByName).toBeNull();
+
+    // A staff member's name is recorded when they void it.
+    const invited = await inviteStaff(db, tenantId, { email: 'staff@a.test', name: 'Maria Staff' });
+    await acceptToken(db, invited!.token, PASSWORD);
+    const staff = request.agent(app);
+    await staff.post('/api/auth/login').send({ email: 'staff@a.test', password: PASSWORD }).expect(200);
+    const voided = (await staff.post(`/api/runs/${saved.id}/void`).send({ reason: 'Wrong date' })).body;
+    expect(voided.voidedByName).toBe('Maria Staff');
+    expect(voided.createdByName).toBe('Frozen Foods Owner');
+    expect((await api.get(`/api/runs/${saved.id}`)).body).toMatchObject({ status: 'void', voidedByName: 'Maria Staff' });
+  });
+
+  it('voids a run only once, even when two requests arrive together', async () => {
+    const c = await makeCatalog();
+    const saved = (await api.post('/api/runs').send(at01Body(c))).body;
+    const [a, b] = await Promise.all([
+      api.post(`/api/runs/${saved.id}/void`).send({ reason: 'first' }),
+      api.post(`/api/runs/${saved.id}/void`).send({ reason: 'second' }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const run = (await api.get(`/api/runs/${saved.id}`)).body;
+    expect(run.voidReason).toBe(a.status === 200 ? 'first' : 'second');
+    expect((await api.post('/api/runs/999999/void').send({ reason: 'x' })).status).toBe(404);
+  });
+
+  it('runs saved before the audit trail show no recorded person', async () => {
+    const old = await scopedDb(db, tenantId).query<{ id: number }>(
+      "INSERT INTO runs (run_date, total_cost_cents) VALUES ('2026-01-05', 0) RETURNING id",
+    );
+    const run = (await api.get(`/api/runs/${old.rows[0]!.id}`)).body;
+    expect(run.createdByName).toBe('');
+    expect(run.voidedByName).toBeNull();
   });
 
   it('voids a run and keeps it out of reports', async () => {

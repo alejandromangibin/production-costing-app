@@ -16,7 +16,7 @@ import { teamRoutes } from './routes/team';
 export interface AppOptions {
   /** Folder with the built web app to serve. Skipped if it does not exist. */
   webDist?: string;
-  /** Browser address of the web dev server, allowed to call the API while developing. */
+  /** Browser address of the web dev server, allowed to call the API while developing. Empty = none. */
   corsOrigin?: string;
   cookieSecure?: boolean;
   trustProxy?: boolean;
@@ -41,10 +41,11 @@ export function createApp(db: Db, opts: AppOptions = {}) {
     });
     next();
   });
-  app.use(cors({ origin: corsOrigin, credentials: true }));
+  // Only the web dev server needs this; a hosted app serves its own pages, so it allows no other origin.
+  if (corsOrigin) app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
 
-  const kit = createAuth(db, { cookieSecure, allowedOrigins: [corsOrigin] });
+  const kit = createAuth(db, { cookieSecure, allowedOrigins: corsOrigin ? [corsOrigin] : [] });
 
   const api = express.Router();
   api.use((_req, res, next) => {

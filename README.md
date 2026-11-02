@@ -78,7 +78,7 @@ npm run backup                                   # saves into the "backups" fold
 npm run restore -- backups\costing-backup-2026-10-19.json --yes
 ```
 
-Restoring replaces everything in the database with the backup and signs everyone out. Backup files contain every business's data and the password hashes: keep them private. With the built-in database, close the app first; your live data is in `server\.data`.
+Restoring replaces everything in the database with the backup and signs everyone out. Backup files contain every business's data and the password hashes: keep them private. With the built-in database, close the app first; your live data is in `server\.data`. A backup can only be restored by the app version that made it. To use an older backup, restore it with that version, then start the new version: it upgrades the data automatically.
 
 ## Settings
 
