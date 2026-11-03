@@ -59,12 +59,15 @@ export async function importEverything(db: Db, data: unknown): Promise<Record<st
   const parsed = backupFile.safeParse(data);
   if (!parsed.success) throw badRequest('This is not a Production Costing backup file.');
   const file = parsed.data;
-  for (const t of ALL_TABLES) {
-    if (!Array.isArray(file.tables[t])) throw badRequest(`The backup file is missing the "${t}" table. Business exports cannot be restored; use a full backup.`);
-  }
+  if (file.schema === 'business-export') throw badRequest('Business exports cannot be restored; use a full backup.');
+  // The version comes before the table check: a backup from an older version lacks the newer tables,
+  // and "restore it with the matching app version" is the useful message for it.
   const current = await schemaVersion(db);
   if (file.schema !== current) {
-    throw badRequest(`This backup is from database version ${file.schema} but this app is on ${current}. Restore it with the matching app version.`);
+    throw badRequest(`This backup is from database version ${file.schema} but this database is on ${current}. Restore it with the matching app version, into a database a newer version has not upgraded.`);
+  }
+  for (const t of ALL_TABLES) {
+    if (!Array.isArray(file.tables[t])) throw badRequest(`The backup file is missing the "${t}" table, so it cannot be restored.`);
   }
 
   const counts: Record<string, number> = {};

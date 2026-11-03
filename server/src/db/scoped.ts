@@ -45,6 +45,7 @@ export function scopedDb(base: Db, tenantId: number): Db {
 export const TENANT_TABLES = [
   'products',
   'pack_sizes',
+  'pack_size_changes',
   'runs',
   'run_products',
   'run_packings',

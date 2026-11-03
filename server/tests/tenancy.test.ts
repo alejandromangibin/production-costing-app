@@ -183,6 +183,36 @@ describe('the database itself enforces the wall', () => {
     }
   });
 
+  it('price history stays inside its business and can never be changed or deleted', async () => {
+    const ca = await makeCatalog(A);
+    const aSize = ca.pork.packSizes[0].id;
+    // Another business gets "not found", never A's history.
+    expect((await B.get(`/api/products/${ca.pork.id}/changes`)).status).toBe(404);
+    // Hand-written SQL as business B can neither see A's history nor add to it.
+    const b = scopedDb(db, bId);
+    expect((await b.query<{ n: number }>('SELECT count(*)::int AS n FROM pack_size_changes')).rows[0]!.n).toBe(0);
+    await expect(
+      b.query(
+        `INSERT INTO pack_size_changes (tenant_id, pack_size_id, kind, retail_price_cents, packaging_cost_cents, is_default, active)
+         VALUES ($1, $2, 'updated', 1, 0, true, true)`,
+        [aId, aSize],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // Even the database owner cannot attach a change of business B to A's pack size (composite foreign key).
+    await expect(
+      db.query(
+        `INSERT INTO pack_size_changes (tenant_id, pack_size_id, kind, retail_price_cents, packaging_cost_cents, is_default, active)
+         VALUES ($1, $2, 'updated', 1, 0, true, true)`,
+        [bId, aSize],
+      ),
+    ).rejects.toThrow(/foreign key/);
+    // A's own history is append-only: the app role may not change or delete it.
+    const a = scopedDb(db, aId);
+    await expect(a.query(`UPDATE pack_size_changes SET retail_price_cents = 1`)).rejects.toThrow(/permission denied/);
+    await expect(a.query(`DELETE FROM pack_size_changes`)).rejects.toThrow(/permission denied/);
+    expect((await a.query<{ n: number }>('SELECT count(*)::int AS n FROM pack_size_changes')).rows[0]!.n).toBeGreaterThan(0);
+  });
+
   it('the app role cannot delete business data at all', async () => {
     const ca = await makeCatalog(A);
     await expect(scopedDb(db, aId).query(`DELETE FROM products WHERE id = $1`, [ca.pork.id])).rejects.toThrow(/permission denied/);

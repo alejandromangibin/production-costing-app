@@ -75,6 +75,43 @@ describe('products', () => {
     const listed = (await api.get('/api/products')).body.find((p: any) => p.id === jap.id);
     expect(listed.packSizes.map((s: any) => s.piecesPerPack)).toEqual([12]);
   });
+  it('keeps a price history: who changed a pack size, what it became, newest first', async () => {
+    const { jap } = await makeCatalog();
+    const twelve = size(jap, 12);
+    const twenty = size(jap, 20);
+    const history = async () => (await api.get(`/api/products/${jap.id}/changes`)).body;
+
+    // Creating the product records each pack size once.
+    const created = await history();
+    expect(created).toHaveLength(2);
+    expect(created.every((c: any) => c.kind === 'created' && c.changedByName === 'Frozen Foods Owner')).toBe(true);
+
+    // A price change is recorded with the new values; saving the same values again records nothing.
+    await api.patch(`/api/pack-sizes/${twelve.id}`).send({ retailPriceCents: 12000 }).expect(200);
+    await api.patch(`/api/pack-sizes/${twelve.id}`).send({ retailPriceCents: 12000 }).expect(200);
+    const afterPrice = await history();
+    expect(afterPrice).toHaveLength(3);
+    expect(afterPrice[0]).toMatchObject({ kind: 'updated', piecesPerPack: 12, retailPriceCents: 12000, packagingCostCents: 500 });
+
+    // Moving the default changes two pack sizes, so both are recorded.
+    await api.patch(`/api/pack-sizes/${twenty.id}`).send({ isDefault: true }).expect(200);
+    const afterDefault = (await history()).slice(0, 2);
+    expect(afterDefault.map((c: any) => [c.piecesPerPack, c.isDefault]).sort()).toEqual([[12, false], [20, true]]);
+
+    // A staff member's archive is recorded under their name, and a new pack size is recorded as added.
+    const invited = await inviteStaff(db, tenantId, { email: 'staff@a.test', name: 'Maria Staff' });
+    await acceptToken(db, invited!.token, PASSWORD);
+    const staff = request.agent(app);
+    await staff.post('/api/auth/login').send({ email: 'staff@a.test', password: PASSWORD }).expect(200);
+    await staff.patch(`/api/pack-sizes/${twenty.id}`).send({ active: false }).expect(200);
+    await api.post(`/api/products/${jap.id}/pack-sizes`).send({ piecesPerPack: 50, retailPriceCents: 40000 }).expect(201);
+    const latest = await history();
+    expect(latest.find((c: any) => c.piecesPerPack === 20 && !c.active)).toMatchObject({ changedByName: 'Maria Staff' });
+    expect(latest[0]).toMatchObject({ kind: 'created', piecesPerPack: 50, retailPriceCents: 40000 });
+
+    expect((await api.get('/api/products/999999/changes')).status).toBe(404);
+  });
+
 });
 
 describe('runs', () => {
@@ -364,11 +401,20 @@ describe('business export and operator backup', () => {
     const c = await makeCatalog();
     await api.post('/api/runs').send(at01Body(c));
     const businessExport = (await api.get('/api/export')).body;
-    await expect(importEverything(db, businessExport)).rejects.toThrow(/missing the "tenants" table|database version/);
+    await expect(importEverything(db, businessExport)).rejects.toThrow('Business exports cannot be restored; use a full backup.');
     await expect(importEverything(db, { hello: 'world' })).rejects.toThrow(/not a Production Costing backup/);
 
     const full = await exportEverything(db);
     await expect(importEverything(db, { ...full, schema: '000_old.sql' })).rejects.toThrow(/database version/);
+    // A backup from the version before price history has no pack_size_changes table: it still gets the version message.
+    const { pack_size_changes: _newer, ...olderTables } = full.tables;
+    await expect(importEverything(db, { ...full, schema: '003_run_audit.sql', tables: olderTables })).rejects.toThrow(
+      `This backup is from database version 003_run_audit.sql but this database is on ${full.schema}. Restore it with the matching app version, into a database a newer version has not upgraded.`,
+    );
+    // A same-version file with a table removed is damaged.
+    await expect(importEverything(db, { ...full, tables: olderTables })).rejects.toThrow(
+      'The backup file is missing the "pack_size_changes" table, so it cannot be restored.',
+    );
     // Nothing was changed by the refusals.
     expect((await api.get('/api/runs')).body).toHaveLength(1);
   });

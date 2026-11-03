@@ -88,6 +88,21 @@ export interface PackSize {
   active: boolean;
 }
 
+/** One entry in a product's price history: a pack size's values after a change, and who made it. */
+export interface PackSizeChange {
+  id: number;
+  packSizeId: number;
+  piecesPerPack: number;
+  kind: 'created' | 'updated';
+  retailPriceCents: number;
+  resellerPriceCents: number | null;
+  packagingCostCents: number;
+  isDefault: boolean;
+  active: boolean;
+  changedByName: string;
+  changedAt: string;
+}
+
 export interface Product {
   id: number;
   code: string;

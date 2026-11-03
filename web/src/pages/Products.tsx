@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ApiError, api, useLoad, type PackSize, type Product } from '../api';
+import { ApiError, api, useLoad, type PackSize, type PackSizeChange, type Product } from '../api';
 import { useAuth } from '../auth';
 import { Badge, Empty, ErrorNote, Loading } from '../components';
-import { centsToInput, parseCents } from '../format';
+import { centsToInput, dateText, parseCents, peso } from '../format';
 
 export function Products() {
   const [showArchived, setShowArchived] = useState(false);
@@ -231,8 +231,80 @@ function ProductCard({ product, onChanged }: { product: Product; onChanged: () =
       ) : (
         <button onClick={() => setAddingSize(true)}>+ Add pack size</button>
       )}
+      <PriceHistory
+        productId={product.id}
+        version={JSON.stringify(product.packSizes.map((s) => [s.id, s.retailPriceCents, s.resellerPriceCents, s.packagingCostCents, s.isDefault, s.active]))}
+      />
       <ErrorNote message={error} />
     </section>
+  );
+}
+
+/** Who changed this product's prices and pack sizes, and when (audit trail). */
+function PriceHistory({ productId, version }: { productId: number; version: string }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <p>
+        <button className="link" onClick={() => setOpen(true)}>
+          Show price history
+        </button>
+      </p>
+    );
+  }
+  return <PriceHistoryTable productId={productId} version={version} onClose={() => setOpen(false)} />;
+}
+
+function PriceHistoryTable({ productId, version, onClose }: { productId: number; version: string; onClose: () => void }) {
+  // Reloads whenever a pack size of this product changes.
+  const { data, error, loading } = useLoad(() => api.get<PackSizeChange[]>(`/products/${productId}/changes`), [productId, version]);
+  return (
+    <div className="stack">
+      <h3>
+        Price history{' '}
+        <button className="link" onClick={onClose}>
+          Hide
+        </button>
+      </h3>
+      <ErrorNote message={error} />
+      {loading && !data && <Loading />}
+      {data && data.length === 0 && <p className="muted">No changes recorded yet. Changes are recorded from now on.</p>}
+      {data && data.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Who</th>
+                <th>Pack</th>
+                <th className="num">Retail price</th>
+                <th className="num">Reseller price</th>
+                <th className="num">Packaging</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((c) => (
+                <tr key={c.id}>
+                  <td>{dateText(c.changedAt)}</td>
+                  <td>{c.changedByName || '–'}</td>
+                  <td>{c.piecesPerPack} pcs</td>
+                  <td className="num">{peso(c.retailPriceCents)}</td>
+                  <td className="num">{peso(c.resellerPriceCents)}</td>
+                  <td className="num">{peso(c.packagingCostCents)}</td>
+                  <td>
+                    {c.kind === 'created' ? 'Added' : 'Changed'}
+                    {c.isDefault ? ', default' : ''}
+                    {c.active ? '' : ', archived'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && data.length === 200 && <p className="hint">Showing the latest 200 changes.</p>}
+    </div>
   );
 }
 

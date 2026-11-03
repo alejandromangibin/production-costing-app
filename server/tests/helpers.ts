@@ -24,7 +24,7 @@ export async function openTestDb(): Promise<Db> {
 export async function resetData(db: Db) {
   await db.exec(
     `TRUNCATE sessions, user_tokens, payments, run_cost_targets, run_costs, run_packings, run_products, runs,
-              pack_sizes, products, users, tenants RESTART IDENTITY CASCADE`,
+              pack_size_changes, pack_sizes, products, users, tenants RESTART IDENTITY CASCADE`,
   );
 }
 

@@ -55,4 +55,4 @@ Automatic monthly charging is a later step (PayMongo supports recurring payments
 
 ## Updating
 
-Deploy the new version over the old one. Database changes are applied automatically at start (files in `server/migrations`), in order, once each. Take a backup first. A backup can only be restored by the app version that made it. To use an older backup, restore it with that version, then start the new version: it upgrades the data automatically.
+Deploy the new version over the old one. Database changes are applied automatically at start (files in `server/migrations`), in order, once each. Take a backup first. A backup can only be restored by the app version that made it, into a database that a newer version has not upgraded yet. Once the new version has started, the database stays on the new version, so to use an older backup: create a new, empty PostgreSQL database, restore the backup into it with the older version (`DATABASE_URL` pointing at the new database), then point the new version at that database and start it: it upgrades the data automatically.

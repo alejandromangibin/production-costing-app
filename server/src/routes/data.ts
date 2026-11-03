@@ -4,7 +4,7 @@ import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
 import { packSizeCreate, packSizeUpdate, productCreate, productUpdate, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
-import { addPackSize, createProduct, getProduct, listProducts, updatePackSize, updateProduct } from '../services/products';
+import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
 import { type Actor, getRun, listRuns, previewRun, runsCsv, saveRun, voidRun } from '../services/runs';
 
@@ -34,19 +34,23 @@ export function dataRoutes(kit: AuthKit) {
     res.json(await listProducts(req.tdb!, req.query.includeInactive === '1'));
   });
   r.post('/products', write, async (req, res) => {
-    res.status(201).json(await createProduct(req.tdb!, productCreate.parse(req.body)));
+    res.status(201).json(await createProduct(req.tdb!, productCreate.parse(req.body), actor(req)));
   });
   r.get('/products/:id', async (req, res) => {
     res.json(await getProduct(req.tdb!, id(req.params.id)));
+  });
+  // Price history: who changed a pack size's prices or settings, and when (audit trail, RUN-10).
+  r.get('/products/:id/changes', async (req, res) => {
+    res.json(await listPackSizeChanges(req.tdb!, id(req.params.id)));
   });
   r.patch('/products/:id', write, async (req, res) => {
     res.json(await updateProduct(req.tdb!, id(req.params.id), productUpdate.parse(req.body)));
   });
   r.post('/products/:id/pack-sizes', write, async (req, res) => {
-    res.status(201).json(await addPackSize(req.tdb!, id(req.params.id), packSizeCreate.parse(req.body)));
+    res.status(201).json(await addPackSize(req.tdb!, id(req.params.id), packSizeCreate.parse(req.body), actor(req)));
   });
   r.patch('/pack-sizes/:id', write, async (req, res) => {
-    res.json(await updatePackSize(req.tdb!, id(req.params.id), packSizeUpdate.parse(req.body)));
+    res.json(await updatePackSize(req.tdb!, id(req.params.id), packSizeUpdate.parse(req.body), actor(req)));
   });
 
   // ---- Runs ----
