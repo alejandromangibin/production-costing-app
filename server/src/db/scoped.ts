@@ -46,11 +46,15 @@ export const TENANT_TABLES = [
   'products',
   'pack_sizes',
   'pack_size_changes',
+  'business_settings',
+  'ingredients',
   'runs',
   'run_products',
   'run_packings',
   'run_costs',
   'run_cost_targets',
+  'stock_movements',
+  'purchase_detail_changes',
 ] as const;
 
 /**
@@ -68,9 +72,10 @@ export async function assertIsolation(db: Db): Promise<void> {
     throw new Error(`Row-level security is not switched on for: ${missing.join(', ')}. Refusing to start.`);
   }
   try {
-    await scopedDb(db, 2_000_000_000).query('SELECT count(*)::int AS n FROM products');
-    const leak = await scopedDb(db, 2_000_000_000).query<{ n: number }>('SELECT count(*)::int AS n FROM products');
-    if (leak.rows[0]!.n !== 0) throw new Error('A business that does not exist can see products.');
+    for (const table of TENANT_TABLES) {
+      const leak = await scopedDb(db, 2_000_000_000).query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`);
+      if (leak.rows[0]!.n !== 0) throw new Error(`A business that does not exist can see ${table}.`);
+    }
     const account = await db
       .tx(async (q) => {
         await q.exec('SET LOCAL ROLE costing_app');
