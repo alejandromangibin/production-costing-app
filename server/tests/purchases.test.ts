@@ -220,7 +220,7 @@ describe('limits (design note 2.1)', () => {
 
   it('limits supplier and reference, and refuses hidden characters in them', async () => {
     await bought({ supplier: 'x'.repeat(120), reference: 'y'.repeat(120) });
-    for (const fields of [{ supplier: 'x'.repeat(121) }, { reference: 'x'.repeat(121) }, { supplier: 'a\u0000b' }, { reference: 'a​b' }, { supplier: 5 }]) {
+    for (const fields of [{ supplier: 'x'.repeat(121) }, { reference: 'x'.repeat(121) }, { supplier: 'a\u0000b' }, { reference: 'a\u200bb' }, { supplier: 5 }]) {
       expect((await buy(fields)).status, JSON.stringify(fields)).toBe(400);
     }
     expect((await bought({ supplier: "Mang Tomas' Meats, Piña St." })).ingredient).toBeTruthy();

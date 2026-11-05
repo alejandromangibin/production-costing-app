@@ -105,7 +105,7 @@ export function checkEntry(entry: StockEntry): void {
   if (!Number.isSafeInteger(q)) throw new Error(`A quantity must be a whole number of thousandths, not ${q}.`);
   if (q === 0 && !rule?.zeroAllowed) {
     throw new CalcError(
-      entry.kind === 'count_correction' ? 'Nothing to correct: the count matches on hand.' : 'The quantity must be more than zero.',
+      entry.kind === 'count_correction' ? 'Nothing to correct: the count matches the recorded stock for that date.' : 'The quantity must be more than zero.',
     );
   }
   if (Math.abs(q) > MAX_QUANTITY_MILLI) throw new CalcError('A quantity can be at most 10,000,000 base units per entry.');

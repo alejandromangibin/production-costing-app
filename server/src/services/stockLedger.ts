@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import {
   type BaseUnit,
   type LedgerLine,
+  MAX_QUANTITY_MILLI,
   type StockEntry,
   type StockState,
   applyEntry,
@@ -16,8 +17,8 @@ import { CalcError } from '../calc/types';
 import { localToday } from '../dates';
 import type { Db, Queryable } from '../db/index';
 import { badRequest, conflict, notFound } from '../errors';
-import type { purchaseBody } from '../schemas';
-import { type Ingredient, getIngredient, getIngredientWithCost } from './ingredients';
+import type { correctionBody, openingBody, purchaseBody } from '../schemas';
+import { type Ingredient, type IngredientWithCost, getIngredient, getIngredientWithCost } from './ingredients';
 import type { Actor } from './runs';
 
 /** An ingredient row as read under its lock: the only figures a stock change may use (design note 4, rule 1). */
@@ -83,6 +84,7 @@ export interface NewLine extends StockEntry {
   supplier?: string;
   reference?: string;
   expiryDate?: string | null;
+  reason?: string;
 }
 
 /**
@@ -108,10 +110,10 @@ export async function addLedgerLine(q: Queryable, ingredient: LockedIngredient, 
 
   const inserted = await q.query<{ id: number }>(
     `INSERT INTO stock_movements (ingredient_id, kind, effective_date, quantity_milli, total_cost_cents,
-                                  supplier, reference, expiry_date, entered_by_user_id, entered_by_name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                                  supplier, reference, expiry_date, reason, entered_by_user_id, entered_by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
     [ingredient.id, line.kind, line.effectiveDate, line.quantityMilli, line.totalCostCents,
-     line.supplier ?? '', line.reference ?? '', line.expiryDate ?? null, actor.id, enteredBy],
+     line.supplier ?? '', line.reference ?? '', line.expiryDate ?? null, line.reason ?? '', actor.id, enteredBy],
   );
 
   const after = fast ? applyEntry(ingredient.state, line) : replay(await ledgerLines(q, ingredient.id));
@@ -166,6 +168,99 @@ export async function recordPurchase(
         actor,
       );
       return { movementId, ingredient: await (withCost ? getIngredientWithCost : getIngredient)(q, ingredientId) };
+    });
+  } catch (err) {
+    throw plainRefusal(err);
+  }
+}
+
+export interface OwnerStockResult {
+  movementId: number;
+  ingredient: IngredientWithCost;
+}
+
+/** Whether the ingredient has an opening balance that has not been reversed. */
+async function hasStandingOpening(q: Queryable, ingredientId: number): Promise<boolean> {
+  const r = await q.query(
+    `SELECT 1 FROM stock_movements o
+     WHERE o.ingredient_id = $1 AND o.kind = 'opening'
+       AND NOT EXISTS (SELECT 1 FROM stock_movements r WHERE r.reverses_movement_id = o.id)
+     LIMIT 1`,
+    [ingredientId],
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * Record an opening balance (INV-08): quantity and what it cost, entered once per ingredient (Q46). A
+ * reversed one no longer counts, so a wrong one can be entered again (Q51). Owner only. Corrections
+ * also work on an archived ingredient (Q50), and an opening balance is one of them.
+ */
+export async function recordOpening(db: Db, ingredientId: number, input: z.infer<typeof openingBody>, actor: Actor): Promise<OwnerStockResult> {
+  if (input.effectiveDate > localToday()) throw badRequest('The date cannot be in the future.');
+  try {
+    return await db.tx(async (q) => {
+      const ingredient = (await lockIngredients(q, [ingredientId])).get(ingredientId)!;
+      if (await hasStandingOpening(q, ingredientId)) throw conflict('This ingredient already has an opening balance.');
+      const movementId = await addLedgerLine(
+        q,
+        ingredient,
+        {
+          kind: 'opening',
+          quantityMilli: parseQuantity(input.quantity, input.unit, ingredient.baseUnit),
+          totalCostCents: input.totalCostCents,
+          effectiveDate: input.effectiveDate,
+          reason: input.reason,
+        },
+        actor,
+      );
+      return { movementId, ingredient: await getIngredientWithCost(q, ingredientId) };
+    });
+  } catch (err) {
+    throw plainRefusal(err);
+  }
+}
+
+/** What the ledger says was on hand at the end of a day. */
+async function onHandAtEndOf(q: Queryable, ingredientId: number, date: string): Promise<number> {
+  const r = await q.query<{ total: unknown }>(
+    'SELECT COALESCE(sum(quantity_milli), 0) AS total FROM stock_movements WHERE ingredient_id = $1 AND effective_date <= $2',
+    [ingredientId, date],
+  );
+  return toSafeInteger(r.rows[0]!.total);
+}
+
+/**
+ * Record spillage, spoilage or a stock-count correction (INV-08). Owner only, always with a reason.
+ *
+ * For a count the owner types what they counted, and only the difference is stored: the count minus the
+ * ledger as of the end of that date (Q52). Lines dated later are unaffected. A count equal to the ledger is
+ * refused as "nothing to correct".
+ *
+ * These lines carry no cost, so dated on or after the latest line they leave the average alone. Back-dated,
+ * they change how much stock later purchases are averaged against, so the replay can move the average
+ * (design note 2.3).
+ */
+export async function recordCorrection(db: Db, ingredientId: number, input: z.infer<typeof correctionBody>, actor: Actor): Promise<OwnerStockResult> {
+  if (input.effectiveDate > localToday()) throw badRequest('The date cannot be in the future.');
+  try {
+    return await db.tx(async (q) => {
+      const ingredient = (await lockIngredients(q, [ingredientId])).get(ingredientId)!;
+      const typedMilli = parseQuantity(input.quantity, input.unit, ingredient.baseUnit);
+      let quantityMilli = -typedMilli;
+      if (input.kind === 'count_correction') {
+        quantityMilli = typedMilli - (await onHandAtEndOf(q, ingredientId, input.effectiveDate));
+        if (Math.abs(quantityMilli) > MAX_QUANTITY_MILLI) {
+          throw badRequest(`The difference from the recorded stock can be at most 10,000,000 ${ingredient.baseUnit} per entry.`);
+        }
+      }
+      const movementId = await addLedgerLine(
+        q,
+        ingredient,
+        { kind: input.kind, quantityMilli, totalCostCents: null, effectiveDate: input.effectiveDate, reason: input.reason },
+        actor,
+      );
+      return { movementId, ingredient: await getIngredientWithCost(q, ingredientId) };
     });
   } catch (err) {
     throw plainRefusal(err);

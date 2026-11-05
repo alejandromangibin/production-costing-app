@@ -81,6 +81,32 @@ export const purchaseBody = z.object({
   expiryDate: stockDate.nullable().optional(),
 });
 
+/** A reason may run over several lines, so line breaks and tabs stay; other hidden characters do not. */
+const noHiddenCharactersInText = (s: string) => !/\p{Cf}|(?![\n\r\t])\p{Cc}/u.test(s);
+const stockReason = z
+  .string()
+  .trim()
+  .min(1, 'A reason is required')
+  .max(300)
+  .refine(noHiddenCharactersInText, 'Remove the hidden or control characters');
+
+export const openingBody = z.object({
+  effectiveDate: stockDate,
+  quantity: z.string().max(30),
+  unit: z.enum(['g', 'mL', 'pc', 'kg', 'L']),
+  totalCostCents: cents,
+  reason: stockReason,
+});
+
+export const correctionBody = z.object({
+  kind: z.enum(['spillage', 'spoilage', 'count_correction']),
+  effectiveDate: stockDate,
+  // Spillage and spoilage: how much was lost. A count correction: what the owner counted (Q52).
+  quantity: z.string().max(30),
+  unit: z.enum(['g', 'mL', 'pc', 'kg', 'L']),
+  reason: stockReason,
+});
+
 export const costCategory = z.enum(['ingredient', 'gas', 'electricity', 'labor', 'other']);
 
 export const runBody = z.object({

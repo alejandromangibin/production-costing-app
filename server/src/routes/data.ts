@@ -3,8 +3,8 @@ import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
-import { ingredientCreate, ingredientUpdate, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
-import { recordPurchase } from '../services/stockLedger';
+import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { recordCorrection, recordOpening, recordPurchase } from '../services/stockLedger';
 import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
 import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
@@ -78,6 +78,14 @@ export function dataRoutes(kit: AuthKit) {
   // Staff and owner record purchases (INV-02); only the owner's answer shows the average.
   r.post('/ingredients/:id/purchases', write, async (req, res) => {
     res.status(201).json(await recordPurchase(req.tdb!, id(req.params.id), purchaseBody.parse(req.body), actor(req), isOwner(req)));
+  });
+
+  // Opening balances and corrections are the owner's (INV-08, INV-14).
+  r.post('/ingredients/:id/opening', kit.requireOwner, write, async (req, res) => {
+    res.status(201).json(await recordOpening(req.tdb!, id(req.params.id), openingBody.parse(req.body), actor(req)));
+  });
+  r.post('/ingredients/:id/corrections', kit.requireOwner, write, async (req, res) => {
+    res.status(201).json(await recordCorrection(req.tdb!, id(req.params.id), correctionBody.parse(req.body), actor(req)));
   });
 
   // ---- Runs ----

@@ -178,7 +178,7 @@ describe('limits (design note 2.1)', () => {
   it('says "nothing to correct" for a count correction of zero (design note 2.6)', () => {
     expect(() =>
       applyEntry(EMPTY_STOCK, { kind: 'count_correction', quantityMilli: 0, totalCostCents: null }),
-    ).toThrow(new CalcError('Nothing to correct: the count matches on hand.'));
+    ).toThrow(new CalcError('Nothing to correct: the count matches the recorded stock for that date.'));
   });
 
   it('treats a fractional quantity as a server error (typed quantities are always whole milli)', () => {
