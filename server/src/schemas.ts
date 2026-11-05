@@ -67,6 +67,20 @@ export const ingredientUpdate = z.object({
   active: z.boolean().optional(),
 });
 
+/** A date the database can hold. Back-dating has no limit (Q45), but there is no year 0. */
+const stockDate = dateOnly.refine((s) => s >= '0001-01-01', 'That date is too far back');
+
+export const purchaseBody = z.object({
+  effectiveDate: stockDate,
+  // As typed: it is turned into thousandths of the base unit after the ingredient is locked (Q42).
+  quantity: z.string().max(30),
+  unit: z.enum(['g', 'mL', 'pc', 'kg', 'L']),
+  totalCostCents: cents,
+  supplier: plainText(z.string().trim().max(120)).default(''),
+  reference: plainText(z.string().trim().max(120)).default(''),
+  expiryDate: stockDate.nullable().optional(),
+});
+
 export const costCategory = z.enum(['ingredient', 'gas', 'electricity', 'labor', 'other']);
 
 export const runBody = z.object({

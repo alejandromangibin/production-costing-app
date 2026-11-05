@@ -3,7 +3,8 @@ import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
-import { ingredientCreate, ingredientUpdate, packSizeCreate, packSizeUpdate, productCreate, productUpdate, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { ingredientCreate, ingredientUpdate, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { recordPurchase } from '../services/stockLedger';
 import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
 import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
@@ -72,6 +73,11 @@ export function dataRoutes(kit: AuthKit) {
   });
   r.patch('/ingredients/:id', kit.requireOwner, write, async (req, res) => {
     res.json(await updateIngredient(req.tdb!, id(req.params.id), ingredientUpdate.parse(req.body)));
+  });
+
+  // Staff and owner record purchases (INV-02); only the owner's answer shows the average.
+  r.post('/ingredients/:id/purchases', write, async (req, res) => {
+    res.status(201).json(await recordPurchase(req.tdb!, id(req.params.id), purchaseBody.parse(req.body), actor(req), isOwner(req)));
   });
 
   // ---- Runs ----

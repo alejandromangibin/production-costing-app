@@ -151,7 +151,7 @@ describe('limits (design note 2.1)', () => {
     // 1 milli-unit for P1,000 is P1,000,000 per unit.
     expect(applyEntry(EMPTY_STOCK, purchase(1, 100_000)).avgE4).toBe(MAX_AVG_E4);
     expect(() => applyEntry(EMPTY_STOCK, purchase(1, 100_001))).toThrow(
-      'The price per unit can be at most P1,000,000. Check the quantity and the total.',
+      'The price per g, mL or piece can be at most P1,000,000. Check the quantity and the total.',
     );
   });
 
@@ -348,7 +348,7 @@ describe('replay in date order (Q38, Q45)', () => {
 
   it('reports a stored line that breaks a limit as a broken ledger, naming the line', () => {
     const tooDear = line('2026-11-01', purchase(1, 200_000));
-    expectServerError(() => replay([tooDear]), new RegExp(`Ledger line ${tooDear.id} is invalid: The price per unit`));
+    expectServerError(() => replay([tooDear]), new RegExp(`Ledger line ${tooDear.id} is invalid: The price per g`));
   });
 
   it('gives every step with the average after it, for the price history (INV-10)', () => {

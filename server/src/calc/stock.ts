@@ -121,7 +121,7 @@ export function checkEntry(entry: StockEntry): void {
   }
   if (total > MAX_AMOUNT_CENTS) throw new CalcError('The total price can be at most P20,000,000.');
   if (BigInt(total) > BigInt(MAX_CENTS_PER_MILLI) * BigInt(q)) {
-    throw new CalcError('The price per unit can be at most P1,000,000. Check the quantity and the total.');
+    throw new CalcError('The price per g, mL or piece can be at most P1,000,000. Check the quantity and the total.');
   }
 }
 
