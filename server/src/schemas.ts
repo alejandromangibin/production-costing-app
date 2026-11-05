@@ -46,6 +46,27 @@ export const productUpdate = z.object({
   active: z.boolean().optional(),
 });
 
+/**
+ * Text that stays readable: no control or invisible characters. PostgreSQL text cannot hold a NUL at all
+ * (it would be a server error), and invisible characters make a name look blank or look like another one.
+ */
+const noHiddenCharacters = (s: string) => !/[\p{Cc}\p{Cf}]/u.test(s);
+const plainText = (schema: z.ZodString) => schema.refine(noHiddenCharacters, 'Remove the hidden or control characters');
+
+const ingredientName = plainText(z.string().trim().min(1, 'Name is required').max(80));
+const baseUnit = z.enum(['g', 'mL', 'pc']);
+
+export const ingredientCreate = z.object({
+  name: ingredientName,
+  baseUnit,
+});
+
+export const ingredientUpdate = z.object({
+  name: ingredientName.optional(),
+  baseUnit: baseUnit.optional(),
+  active: z.boolean().optional(),
+});
+
 export const costCategory = z.enum(['ingredient', 'gas', 'electricity', 'labor', 'other']);
 
 export const runBody = z.object({

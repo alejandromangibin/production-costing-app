@@ -3,14 +3,16 @@ import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
-import { packSizeCreate, packSizeUpdate, productCreate, productUpdate, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { ingredientCreate, ingredientUpdate, packSizeCreate, packSizeUpdate, productCreate, productUpdate, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
 import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
 import { type Actor, getRun, listRuns, previewRun, runsCsv, saveRun, voidRun } from '../services/runs';
 
 const id = (value: unknown): number => {
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 1) throw badRequest('Invalid id');
+  // Ids are integer columns: a larger number would fail in the database as a server error.
+  if (!Number.isInteger(n) || n < 1 || n > 2_147_483_647) throw badRequest('Invalid id');
   return n;
 };
 
@@ -19,6 +21,8 @@ const actor = (req: Request): Actor => {
   const { user } = req.auth!;
   return { id: user.id, name: user.name.trim() || user.email };
 };
+
+const isOwner = (req: Request): boolean => req.auth!.user.role === 'owner';
 
 /**
  * Everything a business does with its own data. Every handler uses req.tdb, a database handle that
@@ -51,6 +55,23 @@ export function dataRoutes(kit: AuthKit) {
   });
   r.patch('/pack-sizes/:id', write, async (req, res) => {
     res.json(await updatePackSize(req.tdb!, id(req.params.id), packSizeUpdate.parse(req.body), actor(req)));
+  });
+
+  // ---- Ingredients ----
+  // Everyone in the business sees names, units and quantities. Costs and changes are the owner's (INV-14).
+  r.get('/ingredients', async (req, res) => {
+    const all = req.query.includeInactive === '1';
+    res.json(isOwner(req) ? await listIngredientsWithCost(req.tdb!, all) : await listIngredients(req.tdb!, all));
+  });
+  r.get('/ingredients/:id', async (req, res) => {
+    const ingredientId = id(req.params.id);
+    res.json(isOwner(req) ? await getIngredientWithCost(req.tdb!, ingredientId) : await getIngredient(req.tdb!, ingredientId));
+  });
+  r.post('/ingredients', kit.requireOwner, write, async (req, res) => {
+    res.status(201).json(await createIngredient(req.tdb!, ingredientCreate.parse(req.body), actor(req)));
+  });
+  r.patch('/ingredients/:id', kit.requireOwner, write, async (req, res) => {
+    res.json(await updateIngredient(req.tdb!, id(req.params.id), ingredientUpdate.parse(req.body)));
   });
 
   // ---- Runs ----
