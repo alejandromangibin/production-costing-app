@@ -10,13 +10,52 @@ useFastPasswordHashingForTests();
 export const PASSWORD = 'correct horse battery';
 
 /**
+ * Why an address must not be used by the tests, or null if it is fine. They wipe the database they are
+ * given, so it must be on this PC and named *_test. The message never repeats the address: it holds a password.
+ */
+export function testDatabaseProblem(databaseUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(databaseUrl);
+  } catch {
+    return 'TEST_DATABASE_URL is not a database address.';
+  }
+  // Other schemes (socket:), whitespace and control characters make the driver read it differently from URL.
+  if (!/^postgres(ql)?:$/.test(url.protocol) || /[\s\x00-\x1f]/.test(databaseUrl)) return 'TEST_DATABASE_URL is not a database address.';
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.searchParams.has('host')) {
+    return 'TEST_DATABASE_URL must point at a database on this PC, because the tests wipe it.';
+  }
+  if (!/^\/\w+_test$/.test(url.pathname)) return 'TEST_DATABASE_URL must name a database ending in _test, because the tests wipe it.';
+  return null;
+}
+
+/**
+ * Empty a real test database, after asking the server what it really is: whatever the address looked like,
+ * the name must end in _test and the login must not be a superuser. Otherwise nothing is touched.
+ */
+export async function wipeTestDatabase(db: Pick<Db, 'query' | 'exec' | 'close'>): Promise<void> {
+  const r = await db.query<{ name: string; rolsuper: boolean }>(
+    'SELECT current_database() AS name, rolsuper FROM pg_roles WHERE rolname = current_user',
+  );
+  const me = r.rows[0];
+  if (!me || !me.name.endsWith('_test') || me.rolsuper !== false) {
+    await db.close();
+    throw new Error('Refusing to wipe this database: it is not a *_test database reached by a plain login.');
+  }
+  await db.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+}
+
+/**
  * One database per test file (starting one is slow), emptied before every test.
  * Normally an in-memory PGlite. Set TEST_DATABASE_URL to run on a real PostgreSQL
- * (WARNING: that database's public schema is wiped).
+ * (WARNING: that database's public schema is wiped, so only a local *_test database is accepted).
  */
-export async function openTestDb(): Promise<Db> {
-  const db = await openDb({ memory: true, databaseUrl: process.env.TEST_DATABASE_URL });
-  if (db.kind === 'postgres') await db.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+export async function openTestDb(open: typeof openDb = openDb): Promise<Db> {
+  const databaseUrl = process.env.TEST_DATABASE_URL;
+  const problem = databaseUrl ? testDatabaseProblem(databaseUrl) : null;
+  if (problem) throw new Error(problem);
+  const db = await open({ memory: true, databaseUrl });
+  if (db.kind === 'postgres') await wipeTestDatabase(db);
   await migrate(db);
   return db;
 }

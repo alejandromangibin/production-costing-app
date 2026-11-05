@@ -68,6 +68,22 @@ Worked example (also an automated test): shared ₱2,800 and a Japanese-only cos
 
 Each business is on a free trial, then paid months that you record by hand on the **Businesses** page (amount, how they paid, months covered). A week after the paid-through date the business turns **read-only**: it can still look at everything, and its owner can download its data, but it cannot add or change anything until you record the next payment. **Suspended** locks it out completely. Nothing is charged automatically.
 
+## Testing on real PostgreSQL
+
+`npm test` uses the built-in database. To run every test on PostgreSQL 16 as well, which is required before a database change reaches the host, this PC needs PostgreSQL 16 installed. Set up once:
+
+```
+npm.cmd run test:db:setup
+```
+
+Run it in PowerShell or Command Prompt, so the password prompt works. It asks for the `postgres` password, creates a separate `costing_test` database, and saves its address in `.env.test`, which git ignores. Then, any time:
+
+```
+npm.cmd run test:postgres
+```
+
+A full run shows no skipped tests. If it says `.env.test: not found`, run the setup first. The tests wipe `costing_test` on every run. They refuse any database that is not on this PC or whose name does not end in `_test`, and they ask the server to confirm before wiping.
+
 ## Backup and restore
 
 - Each business's owner downloads its data from **Account**.

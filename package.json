@@ -11,6 +11,8 @@
     "start": "npm run build && npm run start -w server",
     "dev": "concurrently -n api,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
     "test": "npm run test -w server",
+    "test:postgres": "npm run test:postgres -w server",
+    "test:db:setup": "npm run test:db:setup -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "build": "npm run build -w web",
     "backup": "npm run backup -w server --",
