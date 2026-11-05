@@ -51,7 +51,7 @@ npm start
 4. **Expiry**: batches by expiry date, soonest first, with a warning window you can change.
 5. **Margins**: latest cost per pack versus today's price.
 6. **Team** (owner only): add staff with their own sign-ins; copy the invitation link and send it to them yourself.
-7. **Account**: change your password, see the subscription state, and **download all your business's data** at any time.
+7. **Account**: change your password, see the subscription state, and (owner only) **download all your business's data** at any time.
 
 A saved run cannot be edited, so old figures never change quietly. If you made a mistake, **void** the run (it stays in History but is left out of reports) and enter it again.
 
@@ -66,11 +66,11 @@ Worked example (also an automated test): shared ₱2,800 and a Japanese-only cos
 
 ## Subscriptions in one minute
 
-Each business is on a free trial, then paid months that you record by hand on the **Businesses** page (amount, how they paid, months covered). A week after the paid-through date the business turns **read-only**: it can still look at everything and download its data, but cannot add or change anything until you record the next payment. **Suspended** locks it out completely. Nothing is charged automatically.
+Each business is on a free trial, then paid months that you record by hand on the **Businesses** page (amount, how they paid, months covered). A week after the paid-through date the business turns **read-only**: it can still look at everything, and its owner can download its data, but it cannot add or change anything until you record the next payment. **Suspended** locks it out completely. Nothing is charged automatically.
 
 ## Backup and restore
 
-- Each business downloads its own data from **Account**.
+- Each business's owner downloads its data from **Account**.
 - You, the operator, copy the whole service (all businesses and sign-ins) from the command line. On a hosted database also turn on the provider's automatic backups. In PowerShell, in this folder:
 
 ```powershell

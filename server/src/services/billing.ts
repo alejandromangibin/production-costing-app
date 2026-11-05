@@ -27,7 +27,7 @@ export interface TenantRow {
 /**
  * What a business may do today.
  *   full       everything
- *   read_only  can look, search and download, but cannot add or change anything
+ *   read_only  can look and search, and the owner can download, but cannot add or change anything
  *   blocked    cannot use the app (suspended by you)
  *
  * A paid business keeps full access for a few days after the paid-through date (grace period).
@@ -43,7 +43,7 @@ export function accessFor(
     case 'cancelled':
       return {
         level: 'read_only',
-        message: 'Your subscription is cancelled. You can view and download your data, but not add or change anything.',
+        message: 'Your subscription is cancelled. You can view your data, and the owner can download it, but you cannot add or change anything.',
         daysLeft: null,
       };
     case 'trial': {
@@ -51,7 +51,7 @@ export function accessFor(
       if (daysLeft < 0) {
         return {
           level: 'read_only',
-          message: 'Your free trial has ended. You can view and download your data. Contact us to subscribe and keep adding runs.',
+          message: 'Your free trial has ended. You can view your data, and the owner can download it. Contact us to subscribe and keep adding runs.',
           daysLeft,
         };
       }
@@ -82,7 +82,7 @@ export function accessFor(
       }
       return {
         level: 'read_only',
-        message: 'Your subscription has lapsed. You can view and download your data. Contact us to renew.',
+        message: 'Your subscription has lapsed. You can view your data, and the owner can download it. Contact us to renew.',
         daysLeft,
       };
     }

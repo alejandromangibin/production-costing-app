@@ -128,6 +128,7 @@ describe('login', () => {
 
     await agent.patch(`/api/team/${staff.userId}`).send({ active: false }).expect(200);
     expect((await staffAgent.get('/api/products')).status).toBe(401);
+    expect((await staffAgent.get('/api/export')).status).toBe(401);
     expect((await request(app).post('/api/auth/login').send({ email: 'staff@a.test', password: PASSWORD })).status).toBe(401);
   });
 
@@ -285,10 +286,46 @@ describe('roles', () => {
     void tenantId;
   });
 
+  it('only the owner can download the business data file, including after the business has lapsed (D-33)', async () => {
+    const { agent, tenantId } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
+    const invite = await agent.post('/api/team').send({ email: 'staff@a.test', name: 'Staff' });
+    const staffAgent = request.agent(app);
+    await staffAgent.post('/api/auth/accept').send({ token: tokenOf(invite.body.inviteUrl), password: PASSWORD }).expect(200);
+    await staffAgent.post('/api/products').send({ code: 'SECRET', name: 'Staff product', shelfLifeDays: 5 }).expect(201);
+
+    const refused = await staffAgent.get('/api/export');
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toBe('Only the business owner can do this.');
+    expect(refused.headers['content-disposition']).toBeUndefined();
+    expect(refused.text).not.toContain('SECRET');
+
+    const mine = await agent.get('/api/export');
+    expect(mine.status).toBe(200);
+    expect(mine.body.tables.products.map((p: any) => p.code)).toEqual(['SECRET']);
+
+    // A lapsed business's owner keeps the right to the data; its staff still do not get the file.
+    const lapsed = [
+      `status = 'cancelled'`,
+      `status = 'trial', trial_ends_on = CURRENT_DATE - 30`,
+      `status = 'active', paid_through = CURRENT_DATE - 30`,
+    ];
+    for (const set of lapsed) {
+      await db.query(`UPDATE tenants SET ${set} WHERE id = $1`, [tenantId]);
+      expect((await agent.get('/api/auth/me')).body.tenant.access.level, set).toBe('read_only');
+      expect((await agent.get('/api/export')).status, set).toBe(200);
+      expect((await staffAgent.get('/api/export')).status, set).toBe(403);
+      // The banner staff read must not promise a download they cannot make.
+      const message = (await staffAgent.get('/api/auth/me')).body.tenant.access.message;
+      expect(message, set).toMatch(/the owner can download it/);
+      expect(message, set).not.toMatch(/view and download/);
+    }
+  });
+
   it('the admin account cannot use business data, and businesses cannot use admin pages', async () => {
     const admin = await createAdminAgent(app, db);
     const { agent } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
     expect((await admin.get('/api/products')).status).toBe(403);
+    expect((await admin.get('/api/export')).status).toBe(403);
     expect((await agent.get('/api/admin/tenants')).status).toBe(403);
     expect((await agent.post('/api/admin/tenants').send({})).status).toBe(403);
     expect((await admin.get('/api/admin/tenants')).status).toBe(200);

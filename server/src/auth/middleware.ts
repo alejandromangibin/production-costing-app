@@ -103,7 +103,7 @@ export function createAuth(db: Db, opts: AuthOptions) {
     next();
   };
 
-  /** For anything that adds or changes data. A lapsed business can still look and download. */
+  /** For anything that adds or changes data. A lapsed business can still look, and its owner can download. */
   const requireWritable: RequestHandler = (req, _res, next) => {
     if (req.auth?.access && req.auth.access.level !== 'full') {
       return next(new HttpError(402, req.auth.access.message ?? 'Your subscription is not active.', 'read_only'));

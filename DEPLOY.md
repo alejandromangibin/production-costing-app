@@ -36,7 +36,7 @@ The database user in `DATABASE_URL` must be allowed to create a role (the app cr
 
 ## Taking money
 
-Start manually. Quote a monthly price, receive GCash, bank transfer or cash, and press **Record payment** on the business: enter the amount, the reference and how many months it covers. Access extends automatically, and a week after the paid-through date (grace period) the business becomes **read-only**: they can still look at everything and download their data, but cannot add or change anything, until you record the next payment. **Suspended** locks a business out completely (for example a dispute).
+Start manually. Quote a monthly price, receive GCash, bank transfer or cash, and press **Record payment** on the business: enter the amount, the reference and how many months it covers. Access extends automatically, and a week after the paid-through date (grace period) the business becomes **read-only**: they can still look at everything, and the owner can download their data, but they cannot add or change anything, until you record the next payment. **Suspended** locks a business out completely (for example a dispute).
 
 Automatic monthly charging is a later step (PayMongo supports recurring payments by card and Maya, not GCash, as far as I could find). Do it only once you have a few paying clients and the manual routine gets annoying.
 
@@ -44,7 +44,7 @@ Automatic monthly charging is a later step (PayMongo supports recurring payments
 
 - Turn on your database provider's **automatic backups** and test restoring one at least once.
 - You can also take a whole-service copy yourself with `npm run backup` (needs the same `DATABASE_URL` set). It includes every business's data and the password hashes, so **keep the file private**. `npm run restore -- <file> --yes` puts it back and signs everyone out.
-- Each business can download its own data from **Account → Download my data**, even when it has lapsed.
+- Each business's owner can download its data from **Account → Download my data**, even when it has lapsed. Staff cannot, because the file holds every cost and margin.
 
 ## Before you take real clients
 

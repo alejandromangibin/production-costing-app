@@ -92,7 +92,8 @@ export function dataRoutes(kit: AuthKit) {
   });
 
   // ---- The business's own copy of its data ----
-  r.get('/export', async (req, res) => {
+  // Owner only (D-33): the file holds every cost and margin, which staff will not see once USR-12 is live.
+  r.get('/export', kit.requireOwner, async (req, res) => {
     const file = await exportTenant(req.tdb!);
     res.set('Content-Disposition', `attachment; filename="my-costing-data-${localToday()}.json"`);
     res.json(file);

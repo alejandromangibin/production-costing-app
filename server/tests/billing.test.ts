@@ -203,6 +203,7 @@ describe('subscription gating through the API', () => {
     expect(r.status).toBe(403);
     expect(r.body.code).toBe('suspended');
     expect((await agent.get('/api/auth/me')).body.tenant.access.level).toBe('blocked');
+    expect((await agent.get('/api/export')).body.code).toBe('suspended');
 
     const paid = await admin.post(`/api/admin/tenants/${tenantId}/payments`).send({ amountCents: 1, paidOn: localToday(), months: 1 });
     expect(paid.body.status).toBe('suspended');

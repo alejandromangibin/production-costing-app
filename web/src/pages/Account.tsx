@@ -59,11 +59,15 @@ export function Account() {
           </p>
           {t.access.message && <p>{t.access.message}</p>}
           <p className="hint">To subscribe or renew, pay the person who runs this service and send them the payment reference. Your access updates as soon as they record it.</p>
-          <h3>Your data is yours</h3>
-          <p>Download everything your business has recorded here, any time, even if your subscription has ended.</p>
-          <a className="button" href="/api/export" download>
-            Download my data
-          </a>
+          {me.user.role === 'owner' && (
+            <>
+              <h3>Your data is yours</h3>
+              <p>Download everything your business has recorded here, any time, even if your subscription has ended.</p>
+              <a className="button" href="/api/export" download>
+                Download my data
+              </a>
+            </>
+          )}
         </section>
       )}
 
