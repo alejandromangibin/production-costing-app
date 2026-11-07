@@ -351,6 +351,31 @@ describe('what the database driver hands back', () => {
   });
 });
 
+describe('two saves blocking each other', () => {
+  it('answers plainly when the database stops a save to end a deadlock', async () => {
+    let armed = false;
+    const failing: Db = {
+      ...db,
+      tx: (fn) => {
+        if (!armed) return db.tx(fn);
+        armed = false;
+        return db.tx(async (q) => {
+          await fn(q);
+          throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+        });
+      },
+    };
+    const api = request.agent(makeApp(failing));
+    await api.post('/api/auth/login').send({ email: 'owner@a.test', password: PASSWORD }).expect(200);
+    const soy = await add();
+    armed = true;
+    const r = await api.patch(`/api/ingredients/${soy.id}`).send({ name: 'Dark soy' });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('Someone else was saving at the same moment. Please try again.');
+    expect((await owner.get(`/api/ingredients/${soy.id}`)).body.name).toBe('Soy sauce');
+  });
+});
+
 describe('bad addresses', () => {
   it('answers plainly for ids that are not valid or do not exist', async () => {
     expect((await owner.get('/api/ingredients/abc')).status).toBe(400);

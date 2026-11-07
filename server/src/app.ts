@@ -87,6 +87,11 @@ export function createApp(db: Db, opts: AppOptions = {}) {
       res.status(413).json({ error: 'That request is too large.' });
     } else if (err?.code === '23505') {
       res.status(409).json({ error: 'That already exists.' });
+    } else if (err?.code === '40P01') {
+      // Two saves blocked each other and the database stopped one: nothing was saved, so it is safe to retry.
+      // Stock saves take their locks in order and should never get here, so leave a trace if one does.
+      console.warn(`A deadlock stopped a save: ${err.message}`);
+      res.status(409).json({ error: 'Someone else was saving at the same moment. Please try again.' });
     } else {
       console.error(err);
       res.status(500).json({ error: 'Something went wrong on the server. Please try again, and tell support if it keeps happening.' });
