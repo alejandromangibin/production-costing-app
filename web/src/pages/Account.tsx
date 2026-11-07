@@ -75,7 +75,7 @@ export function Account() {
         <h2>Change password</h2>
         <div className="form-grid">
           <label>
-            Current password
+            Current password <small></small>
             <input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
           </label>
           <label>
@@ -83,7 +83,7 @@ export function Account() {
             <input type="password" autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} />
           </label>
           <label>
-            New password again
+            New password again <small></small>
             <input type="password" autoComplete="new-password" required value={again} onChange={(e) => setAgain(e.target.value)} />
           </label>
         </div>
