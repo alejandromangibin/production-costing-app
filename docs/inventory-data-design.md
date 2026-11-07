@@ -287,9 +287,11 @@ the result with the cached copy.
   (counted at the end of that day). It stores only the difference. Later-dated lines are unaffected. If the
   count equals the computed on hand, the server says "nothing to correct" (400) and stores nothing.
 - **Purchase reversal (INV-16).** It is allowed only while the purchase is the ingredient's last line, both
-  by entry order and by date. The reversal is dated the purchase's own date, and it always replays.
-- **Opening balance.** Allowed once (Q46). A wrong one can be reversed under the same rule as a purchase, then
-  entered again (Q51). The one-standing-opening rule in 1.3 applies.
+  by entry order and by date. Lines already undone do not count (D-43). The reversal is
+  dated the purchase's own date, and it always replays.
+- **Opening balance.** Allowed once (Q46). A wrong one can be reversed, then entered again (Q51). For an opening
+  the last line means the last entry made, whatever its date (D-42): it is often dated before a purchase already
+  recorded. The one-standing-opening rule in 1.3 applies.
 - **Future dates (Q54).** Purchases, opening balances and corrections may not be dated after today
   in the business's time zone. Runs keep today's behaviour, and the fast-path rule in 2.3 already copes with
   future-dated runs.

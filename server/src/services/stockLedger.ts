@@ -17,7 +17,7 @@ import { CalcError } from '../calc/types';
 import { localToday } from '../dates';
 import type { Db, Queryable } from '../db/index';
 import { badRequest, conflict, notFound } from '../errors';
-import type { correctionBody, openingBody, purchaseBody } from '../schemas';
+import type { correctionBody, openingBody, purchaseBody, reversalBody } from '../schemas';
 import { type Ingredient, type IngredientWithCost, getIngredient, getIngredientWithCost } from './ingredients';
 import type { Actor } from './runs';
 
@@ -85,6 +85,7 @@ export interface NewLine extends StockEntry {
   reference?: string;
   expiryDate?: string | null;
   reason?: string;
+  reversesMovementId?: number;
 }
 
 /**
@@ -110,10 +111,10 @@ export async function addLedgerLine(q: Queryable, ingredient: LockedIngredient, 
 
   const inserted = await q.query<{ id: number }>(
     `INSERT INTO stock_movements (ingredient_id, kind, effective_date, quantity_milli, total_cost_cents,
-                                  supplier, reference, expiry_date, reason, entered_by_user_id, entered_by_name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+                                  supplier, reference, expiry_date, reason, reverses_movement_id, entered_by_user_id, entered_by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
     [ingredient.id, line.kind, line.effectiveDate, line.quantityMilli, line.totalCostCents,
-     line.supplier ?? '', line.reference ?? '', line.expiryDate ?? null, line.reason ?? '', actor.id, enteredBy],
+     line.supplier ?? '', line.reference ?? '', line.expiryDate ?? null, line.reason ?? '', line.reversesMovementId ?? null, actor.id, enteredBy],
   );
 
   const after = fast ? applyEntry(ingredient.state, line) : replay(await ledgerLines(q, ingredient.id));
@@ -261,6 +262,58 @@ export async function recordCorrection(db: Db, ingredientId: number, input: z.in
         actor,
       );
       return { movementId, ingredient: await getIngredientWithCost(q, ingredientId) };
+    });
+  } catch (err) {
+    throw plainRefusal(err);
+  }
+}
+
+/**
+ * Undo a purchase or opening balance entered by mistake (INV-16, Q51). Owner only, with a reason.
+ *
+ * A purchase must be the ingredient's latest line, both by entry order and by date. An opening balance need
+ * only be the last entry made (D-42): an opening is often dated before a purchase already recorded, and it
+ * could otherwise never be fixed. Lines already undone do not count. Anything else is fixed with a count
+ * correction. The reversal takes the line's own date and the ledger is worked out again without the pair, so
+ * stock and the average end up as if it had never been entered. Saved runs keep the cost they used.
+ */
+export async function reverseEntry(
+  db: Db,
+  ingredientId: number,
+  movementId: number,
+  input: z.infer<typeof reversalBody>,
+  actor: Actor,
+): Promise<OwnerStockResult> {
+  try {
+    return await db.tx(async (q) => {
+      const ingredient = (await lockIngredients(q, [ingredientId])).get(ingredientId)!;
+      const lines = await ledgerLines(q, ingredientId);
+      const target = lines.find((l) => l.id === movementId);
+      if (!target) throw notFound('Stock entry not found');
+      if (target.kind !== 'purchase' && target.kind !== 'opening') throw badRequest('Only a purchase or an opening balance can be reversed.');
+      const reversed = new Set(lines.map((l) => l.reversesMovementId));
+      if (reversed.has(target.id)) throw conflict('This entry has already been reversed.');
+
+      const standing = lines.filter((l) => l.kind !== 'purchase_reversal' && !reversed.has(l.id));
+      const latestDate = standing.reduce((latest, l) => (l.effectiveDate > latest ? l.effectiveDate : latest), target.effectiveDate);
+      if (standing.some((l) => l.id > target.id) || (target.kind === 'purchase' && target.effectiveDate !== latestDate)) {
+        throw conflict('Only the latest stock change can be reversed. Use a count correction instead.');
+      }
+
+      const reversalId = await addLedgerLine(
+        q,
+        ingredient,
+        {
+          kind: 'purchase_reversal',
+          quantityMilli: -target.quantityMilli,
+          totalCostCents: null,
+          effectiveDate: target.effectiveDate,
+          reason: input.reason,
+          reversesMovementId: target.id,
+        },
+        actor,
+      );
+      return { movementId: reversalId, ingredient: await getIngredientWithCost(q, ingredientId) };
     });
   } catch (err) {
     throw plainRefusal(err);

@@ -4,7 +4,7 @@ import { addDays, localToday } from '../src/dates';
 import type { Db, Queryable } from '../src/db/index';
 import { scopedDb } from '../src/db/scoped';
 import { createIngredient, getIngredient, updateIngredient } from '../src/services/ingredients';
-import { type LockedIngredient, type NewLine, addLedgerLine, lockIngredients, recordCorrection, recordOpening, recordPurchase } from '../src/services/stockLedger';
+import { type LockedIngredient, type NewLine, addLedgerLine, lockIngredients, recordCorrection, recordOpening, recordPurchase, reverseEntry } from '../src/services/stockLedger';
 import { type Agent, type App, createBusiness, makeApp, openTestDb, resetData } from './helpers';
 
 /**
@@ -283,6 +283,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('two people at once, on a real P
       expect(await outcome).toBe('Nothing to correct: the count matches the recorded stock for that date.');
       expect(await ledger()).toHaveLength(2);
       expect((await stored()).onHandMilli).toBe(900_000);
+    });
+  });
+
+  describe('reversals', () => {
+    it('refuses a reversal that had to wait for a newer stock line', async () => {
+      const { movementId } = await purchase('100', 1000);
+      const first = hold([soy], async (q, locked) => addLedgerLine(q, locked.get(soy)!, line(100_000, 3000), actor));
+      await first.ready;
+      const outcome = track(reverseEntry(scoped, soy, movementId, { reason: 'Wrong entry' }, actor)).then(() => 'reversed', (e) => e.message);
+      await someoneIsWaiting();
+      first.release();
+      await first.done;
+      expect(await outcome).toBe('Only the latest stock change can be reversed. Use a count correction instead.');
+      expect(await ledger()).toHaveLength(2);
+      await expectCopyMatchesLedger();
+    });
+
+    it('refuses the second of two people reversing the same line', async () => {
+      const { movementId } = await purchase('100', 1000);
+      const first = hold([soy], async (q, locked) =>
+        addLedgerLine(q, locked.get(soy)!, { kind: 'purchase_reversal', quantityMilli: -100_000, totalCostCents: null, effectiveDate: today(), reason: 'Wrong entry', reversesMovementId: movementId }, actor),
+      );
+      await first.ready;
+      const outcome = track(reverseEntry(scoped, soy, movementId, { reason: 'Wrong entry' }, actor)).then(() => 'reversed', (e) => e.message);
+      await someoneIsWaiting();
+      first.release();
+      await first.done;
+      expect(await outcome).toBe('This entry has already been reversed.');
+      expect(await ledger()).toHaveLength(2);
+      expect((await stored()).onHandMilli).toBe(0);
+      await expectCopyMatchesLedger();
+    });
+
+    it('keeps the copy equal to the ledger whichever of a reversal and a purchase gets there first', async () => {
+      await purchase('100', 1000);
+      const { movementId } = await purchase('100', 9000);
+      const [undo, bought] = await Promise.allSettled([track(reverseEntry(scoped, soy, movementId, { reason: 'Wrong entry' }, actor)), purchase('100', 3000)]);
+      expect(bought.status).toBe('fulfilled');
+      await expectCopyMatchesLedger();
+      // First, the reversal goes through; second, the purchase is newer and the reversal is refused, for that reason only.
+      if (undo.status === 'rejected') {
+        expect(undo.reason.message).toBe('Only the latest stock change can be reversed. Use a count correction instead.');
+      }
+      expect((await stored()).onHandMilli).toBe(undo.status === 'fulfilled' ? 200_000 : 300_000);
     });
   });
 

@@ -3,8 +3,8 @@ import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
-import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
-import { recordCorrection, recordOpening, recordPurchase } from '../services/stockLedger';
+import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, reversalBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { recordCorrection, recordOpening, recordPurchase, reverseEntry } from '../services/stockLedger';
 import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
 import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
 import { expiryBoard, marginsView } from '../services/reports';
@@ -86,6 +86,11 @@ export function dataRoutes(kit: AuthKit) {
   });
   r.post('/ingredients/:id/corrections', kit.requireOwner, write, async (req, res) => {
     res.status(201).json(await recordCorrection(req.tdb!, id(req.params.id), correctionBody.parse(req.body), actor(req)));
+  });
+
+  r.post('/ingredients/:id/movements/:movementId/reversal', kit.requireOwner, write, async (req, res) => {
+    const body = reversalBody.parse(req.body);
+    res.status(201).json(await reverseEntry(req.tdb!, id(req.params.id), id(req.params.movementId), body, actor(req)));
   });
 
   // ---- Runs ----

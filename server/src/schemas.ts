@@ -107,6 +107,10 @@ export const correctionBody = z.object({
   reason: stockReason,
 });
 
+export const reversalBody = z.object({
+  reason: stockReason,
+});
+
 export const costCategory = z.enum(['ingredient', 'gas', 'electricity', 'labor', 'other']);
 
 export const runBody = z.object({
