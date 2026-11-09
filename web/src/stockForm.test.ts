@@ -1,6 +1,6 @@
 // The purchase form's own checks and wording (P4-12). They live in the web app; the server checks again.
 import { describe, expect, it } from 'vitest';
-import { parseCents, todayIn } from '../../web/src/format';
+import { parseCents, todayIn } from './format';
 import {
   averageText,
   changeText,
@@ -15,7 +15,7 @@ import {
   purchaseWarnings,
   quantityText,
   recountNotice,
-} from '../../web/src/stockForm';
+} from './stockForm';
 
 describe('quantities on the ingredient list', () => {
   it('shows thousandths exactly, with no rounding', () => {

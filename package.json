@@ -10,7 +10,7 @@
   "scripts": {
     "start": "npm run build && npm run start -w server",
     "dev": "concurrently -n api,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
-    "test": "npm run test -w server",
+    "test": "npm run test -w server && npm run test -w web",
     "test:postgres": "npm run test:postgres -w server",
     "test:db:setup": "npm run test:db:setup -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
@@ -19,7 +19,7 @@
     "restore": "npm run restore -w server --"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": "^22.22.2 || ^24.15.0 || >=26"
   },
   "devDependencies": {
     "concurrently": "^9.2.5"
