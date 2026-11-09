@@ -19,7 +19,7 @@ let soy: number;
 
 const today = () => localToday();
 const day = (offset: number) => addDays(today(), offset);
-const NOT_LATEST = 'Only the latest stock change can be reversed. Use a count correction instead.';
+const NOT_LATEST = 'Only the last entry made for this ingredient can be reversed. Use a count correction instead.';
 
 beforeAll(async () => {
   db = await openTestDb();
@@ -156,10 +156,16 @@ describe('only the latest stock change (INV-16)', () => {
     expect((await reverse(first)).body.error).toBe(NOT_LATEST);
   });
 
-  it('refuses a purchase that is the last entry made but not the latest by date', async () => {
-    await buy('100', 1000, day(-1));
-    const backDated = await buy('100', 1000, day(-5));
-    expect((await reverse(backDated)).body.error).toBe(NOT_LATEST);
+  it('allows a back-dated purchase that was the last entry made, so a mistyped price can be undone (D-45)', async () => {
+    await buy('1000', 10000, day(-10));
+    await buy('1000', 10000, day(-1));
+    const typo = await buy('1000', 1_000_000, day(-5)); // P10,000 typed instead of P100
+    expect((await stored()).avgE4).toBe(3_400_000);
+    const r = await reversed(typo);
+    expect(r.ingredient).toMatchObject({ onHandMilli: 2_000_000, avgCostE4: 100_000 });
+    await buy('1000', 10000, day(-5));
+    expect(await stored()).toMatchObject({ onHandMilli: 3_000_000, avgE4: 100_000 });
+    await expectCopyMatchesLedger();
   });
 
   it('refuses a purchase that is the latest by date but not the last entry made', async () => {

@@ -271,9 +271,9 @@ export async function recordCorrection(db: Db, ingredientId: number, input: z.in
 /**
  * Undo a purchase or opening balance entered by mistake (INV-16, Q51). Owner only, with a reason.
  *
- * A purchase must be the ingredient's latest line, both by entry order and by date. An opening balance need
- * only be the last entry made (D-42): an opening is often dated before a purchase already recorded, and it
- * could otherwise never be fixed. Lines already undone do not count. Anything else is fixed with a count
+ * It must be the last entry made for the ingredient, whatever its date: an opening balance (D-42) or a purchase
+ * (D-45). Both are often dated before a line already recorded, and a wrong cost could otherwise never be taken
+ * out of the average. Lines already undone do not count (D-43). Anything else is fixed with a count
  * correction. The reversal takes the line's own date and the ledger is worked out again without the pair, so
  * stock and the average end up as if it had never been entered. Saved runs keep the cost they used.
  */
@@ -295,9 +295,8 @@ export async function reverseEntry(
       if (reversed.has(target.id)) throw conflict('This entry has already been reversed.');
 
       const standing = lines.filter((l) => l.kind !== 'purchase_reversal' && !reversed.has(l.id));
-      const latestDate = standing.reduce((latest, l) => (l.effectiveDate > latest ? l.effectiveDate : latest), target.effectiveDate);
-      if (standing.some((l) => l.id > target.id) || (target.kind === 'purchase' && target.effectiveDate !== latestDate)) {
-        throw conflict('Only the latest stock change can be reversed. Use a count correction instead.');
+      if (standing.some((l) => l.id > target.id)) {
+        throw conflict('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
       }
 
       const reversalId = await addLedgerLine(

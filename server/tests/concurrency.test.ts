@@ -295,7 +295,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('two people at once, on a real P
       await someoneIsWaiting();
       first.release();
       await first.done;
-      expect(await outcome).toBe('Only the latest stock change can be reversed. Use a count correction instead.');
+      expect(await outcome).toBe('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
       expect(await ledger()).toHaveLength(2);
       await expectCopyMatchesLedger();
     });
@@ -324,7 +324,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('two people at once, on a real P
       await expectCopyMatchesLedger();
       // First, the reversal goes through; second, the purchase is newer and the reversal is refused, for that reason only.
       if (undo.status === 'rejected') {
-        expect(undo.reason.message).toBe('Only the latest stock change can be reversed. Use a count correction instead.');
+        expect(undo.reason.message).toBe('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
       }
       expect((await stored()).onHandMilli).toBe(undo.status === 'fulfilled' ? 200_000 : 300_000);
     });

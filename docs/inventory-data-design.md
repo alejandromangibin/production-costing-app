@@ -286,8 +286,9 @@ the result with the cached copy.
   server works out the difference: the count minus the sum of all ledger lines dated on or before that date
   (counted at the end of that day). It stores only the difference. Later-dated lines are unaffected. If the
   count equals the computed on hand, the server says "nothing to correct" (400) and stores nothing.
-- **Purchase reversal (INV-16).** It is allowed only while the purchase is the ingredient's last line, both
-  by entry order and by date. Lines already undone do not count (D-43). The reversal is
+- **Purchase reversal (INV-16).** It is allowed only while the purchase is the last entry made for the
+  ingredient, whatever its date (D-45, as for openings in D-42): otherwise a mistyped price on a back-dated
+  purchase could never be taken out of the average. Lines already undone do not count (D-43). The reversal is
   dated the purchase's own date, and it always replays.
 - **Opening balance.** Allowed once (Q46). A wrong one can be reversed, then entered again (Q51). For an opening
   the last line means the last entry made, whatever its date (D-42): it is often dated before a purchase already
