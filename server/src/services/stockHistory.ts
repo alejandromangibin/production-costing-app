@@ -1,4 +1,4 @@
-import { type LedgerLine, type MovementKind, replaySteps, toSafeInteger, unitPriceE4 } from '../calc/stock';
+import { type LedgerLine, compareLedgerOrder, type MovementKind, replaySteps, toSafeInteger, unitPriceE4 } from '../calc/stock';
 import type { Queryable } from '../db/index';
 import { notFound } from '../errors';
 import { type IngredientWithCost, getIngredientWithCost } from './ingredients';
@@ -41,7 +41,7 @@ export interface MovementView {
 
 export interface MovementHistory {
   ingredient: IngredientWithCost;
-  /** In the order they count: by date, then by entry. */
+  /** In the order they count: by date, a count last on its day (D-46), then by entry. */
   movements: MovementView[];
   /** The one line that can be reversed now, by the same rule as the reversal itself, or null. */
   reversibleMovementId: number | null;
@@ -141,6 +141,6 @@ export async function movementHistory(q: Queryable, ingredientId: number): Promi
       needsRecount: cancelled ? null : needsRecountDate(line, outOfDate),
     };
   });
-  movements.sort((a, b) => (a.effectiveDate === b.effectiveDate ? a.id - b.id : a.effectiveDate < b.effectiveDate ? -1 : 1));
+  movements.sort(compareLedgerOrder);
   return { ingredient, movements, reversibleMovementId: reversibleMovementId(ledger) };
 }

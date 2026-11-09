@@ -67,7 +67,8 @@ function byHand(lines: Awaited<ReturnType<typeof ledger>>) {
   const undone = new Set(lines.map((l) => l.reversesMovementId));
   const ordered = lines
     .filter((l) => l.kind !== 'purchase_reversal' && !undone.has(l.id))
-    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.id - b.id);
+    // By date; on one date a count goes after everything else (D-46); then by id. Written out here on purpose, apart from the app's sort.
+    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || Number(a.kind === 'count_correction') - Number(b.kind === 'count_correction') || a.id - b.id);
   let onHand = 0n;
   let average: bigint | null = null;
   for (const l of ordered) {

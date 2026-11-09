@@ -90,8 +90,8 @@ export interface NewLine extends StockEntry {
 
 /**
  * Add one ledger line to a locked ingredient and bring its cached copy up to date (design note 2.3):
- * one step when the line is dated on or after the ledger's latest line, otherwise a replay of the whole
- * ledger in date order. The average's version goes up only when the average really changes.
+ * one step when the line lands last in the replay order (dated on or after the latest line and, unless it is a
+ * count, not on the date of a count, which goes after it, D-46), otherwise a replay of the whole ledger. The average's version goes up only when the average really changes.
  *
  * `ingredient.state` is kept up to date, so several lines for one ingredient can go through one lock
  * (two lines of the same ingredient on a run, Q44). Refusals are CalcErrors: pass them through plainRefusal.
@@ -102,12 +102,14 @@ export async function addLedgerLine(q: Queryable, ingredient: LockedIngredient, 
   const enteredBy = actor.name.trim();
   if (!enteredBy) throw new Error('A ledger line needs the name of the person entering it.');
   const latest = (
-    await q.query<{ latest: string | null }>(
-      'SELECT max(effective_date)::text AS latest FROM stock_movements WHERE ingredient_id = $1',
+    await q.query<{ latest: string | null; latest_count: string | null }>(
+      `SELECT max(effective_date)::text AS latest,
+              max(effective_date) FILTER (WHERE kind = 'count_correction')::text AS latest_count
+       FROM stock_movements WHERE ingredient_id = $1`,
       [ingredient.id],
     )
-  ).rows[0]!.latest;
-  const fast = canUseFastPath(line.kind, line.effectiveDate, latest);
+  ).rows[0]!;
+  const fast = canUseFastPath(line.kind, line.effectiveDate, latest.latest, latest.latest_count);
 
   const inserted = await q.query<{ id: number }>(
     `INSERT INTO stock_movements (ingredient_id, kind, effective_date, quantity_milli, total_cost_cents,

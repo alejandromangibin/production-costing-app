@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { Badge, ErrorNote, Loading } from '../components';
 import { dateText, parseCents, peso, todayIn, todayISO } from '../format';
 import {
+  COUNT_END_OF_DAY_NOTE,
   ENTRY_UNITS,
   averageText,
   changeText,
@@ -453,7 +454,11 @@ function CorrectionForm({
   return (
     <form className="card" onSubmit={submit}>
       <h3>{FORM_NAMES[kind]}</h3>
-      {isCount && <p className="hint">Type what you counted on the shelf. The app works out the difference from what it has recorded for that date.</p>}
+      {isCount && (
+        <p className="hint">
+          Type what you counted on the shelf. The app works out the difference from what it has recorded for that date. {COUNT_END_OF_DAY_NOTE}
+        </p>
+      )}
       {isOpening && <p className="hint">The stock you already had when you started, and what it cost. It can be entered once.</p>}
       <div className="form-grid">
         <label>

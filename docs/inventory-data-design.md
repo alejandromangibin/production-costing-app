@@ -245,11 +245,17 @@ and is the only code that changes these values.
 
 ### 2.3 Date order, the fast path and the replay (Q38, Q45)
 
-- **Replay:** fold `applyEntry` over the ingredient's ledger in date order (`effective_date`, then `id`). A
-  reversed line and its reversal are both left out.
-- **Fast path:** if, after taking the lock, the new line's `effective_date` is on or after the latest
-  `effective_date` in that ingredient's ledger, apply the one step to the cached copy. In every other case
-  (any back-dated line, and **every reversal**), replay the whole ledger and store the result.
+- **Replay:** fold `applyEntry` over the ingredient's ledger in date order (`effective_date`, count last, `id`). A
+  reversed line and its reversal are both left out. **(D-46, Nov 9, 2026)** On one date, every stock count is
+  replayed after every other kind of line, because a count is the stock at the end of its day; counts and the
+  other kinds each keep `id` order among themselves. The order is `(effective_date, count last, id)`, written
+  once in `calc/stock.ts` and used by the replay and the history screen. What a count stores, and on hand
+  (a plain sum), do not depend on the order.
+- **Fast path:** if, after taking the lock, the new line lands last in that order, apply the one step to the
+  cached copy. That is when its `effective_date` is on or after the latest `effective_date` in that
+  ingredient's ledger **and (D-46, Nov 9, 2026), unless the new line is itself a count, no count is dated on
+  that same date** (such a count now belongs after it). In every other case (any back-dated line, a line
+  entered on the date of a count, and **every reversal**), replay the whole ledger and store the result.
 - **Saved runs keep the cost they used** (Q45). The replay never touches `run_costs` or `unit_cost_e4`.
 - **On hand** is the plain sum of the ledger, so the order does not affect it.
 
@@ -443,7 +449,7 @@ never hears about, so every purchase is averaged against stock that is already g
   owner records a count correction, which Q52 makes easy. This is correct, but it is a chore and easy to
   forget. The count must come first in date order: the same date as the purchase, entered before it. A
   purchase entered late with an earlier date therefore needs its own count, dated that same day and entered
-  before the purchase.
+  before the purchase. **(D-46, Nov 9, 2026: replaced. On its date a count now comes after the purchase, whatever the entry order. This option was not chosen anyway.)**
 - **(c) Shadow-period runs record stock use only,** while their costs stay as peso lines. This is correct,
   but it needs part 4b first and changes 4b and database change 006.
 - **(d) Accept the error.** It fades only slowly, depending on how much old stock is left at each purchase.
@@ -503,10 +509,14 @@ this for the price history.
   ingredient price history (INV-10), because it is worked out again in date order. Saved runs never change.
 - **An old count is not reworked.** A count stores only the difference from that day. If something is later
   back-dated before the count, on hand moves by that amount, past what was counted, and later averages move too.
-  On hand can even go below zero, which blocks new runs until it is corrected. A count dated today corrects stock
-  but not the average. To repair both, count again on the old date, typing the same number, then enter any later
-  counts again too, oldest date first: each recount is itself dated before them, so until then on hand looks wrong.
-  The last one may answer "nothing to correct", which means stock is already right.
+  On hand can even go below zero, which blocks new runs until it is corrected. To repair both stock and the
+  average, count again on the old date, typing the same number, then enter any later counts again too, oldest
+  date first: each recount is itself dated before them, so until then on hand looks wrong. Once the first is
+  entered again, the later ones usually answer "nothing to correct", which means stock is already right.
+  **(D-49, Nov 9, 2026)** A count dated today corrects stock but not the average, when purchases were averaged
+  between the old count and today: the average is only worked out again by counting on the old date. **(D-46,
+  Nov 9, 2026)** A count is worked out last on its date, so an entry made later with the same date as a count no
+  longer needs a special rule: the count on that date, entered again, puts both stock and the average right.
 - **A void return can come before its run.** A void return is dated the day of the void. If a run was dated
   in the future and then voided before that date, its stock comes back before it was used, in date order.
   This only shifts the averages of purchases in between.

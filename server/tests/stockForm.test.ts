@@ -7,6 +7,7 @@ import {
   checkQuantity,
   convertedText,
   correctionSavedText,
+  COUNT_END_OF_DAY_NOTE,
   correctionWarnings,
   isNothingToCorrect,
   movementLabel,
@@ -145,7 +146,7 @@ describe('warnings on the purchase form', () => {
       'This ingredient was last counted on Nov 3, 2026. A purchase dated on or before a count moves on hand away from what was counted, ' +
         'and can change the average. To put it right after saving, enter again every count dated on or after Oct 1, 2026, each on its ' +
         'own date with the number you counted then, oldest first. Once the first is entered again, the later ones will usually answer ' +
-        '"nothing to correct", which means stock is right. A count dated today, or on this purchase\'s own date, puts stock right ' +
+        '"nothing to correct", which means stock is right. A count dated today puts stock right ' +
         'but may not put the average right.',
     );
     // A count is the stock at the end of its day, so a purchase on that same day moves it too.
@@ -191,13 +192,14 @@ describe('warnings on the owner correction forms (D-44)', () => {
   it('warns for an opening balance, spillage or spoilage dated on or before the latest count, in the purchase wording', () => {
     const purchase = purchaseWarnings({ date: '2026-10-01', expiryDate: '', lastCountDate: last, isOwner: true })[0]!;
     expect(correctionWarnings({ kind: 'spillage', date: '2026-10-01', lastCountDate: last })).toEqual([
-      purchase.replace('A purchase dated', 'A spillage entry dated').replace("this purchase's own date", "this spillage entry's own date"),
+      purchase.replace('A purchase dated', 'A spillage entry dated'),
     ]);
     const [opening] = correctionWarnings({ kind: 'opening', date: '2026-11-03', lastCountDate: last });
     expect(opening).toContain('This ingredient was last counted on Nov 3, 2026. An opening balance dated on or before a count moves on hand');
     expect(opening).toContain('every count dated on or after Nov 3, 2026');
     expect(opening).toContain('"nothing to correct"');
-    expect(opening).toContain("or on this opening balance's own date, puts stock right but may not put the average right.");
+    expect(opening).toContain('A count dated today puts stock right but may not put the average right.');
+    expect(opening).not.toContain('own date, puts');
     expect(correctionWarnings({ kind: 'spoilage', date: '2026-11-03', lastCountDate: last })[0]).toContain('A spoilage entry dated on or before a count');
   });
 
@@ -261,5 +263,11 @@ describe('what the owner reads after a save', () => {
         'A count that answers "nothing to correct" is fine: it means stock is right.',
     );
     expect(text).not.toContain('on or after');
+  });
+});
+
+describe('the stock count form note (D-51)', () => {
+  it('says a count is the stock at the end of the day', () => {
+    expect(COUNT_END_OF_DAY_NOTE).toBe('A count is the stock at the end of the day. Count after the day’s runs and other entries are done and entered.');
   });
 });

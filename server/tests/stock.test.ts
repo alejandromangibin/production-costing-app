@@ -5,6 +5,7 @@ import {
   MAX_QUANTITY_MILLI,
   applyEntry,
   canUseFastPath,
+  compareLedgerOrder,
   checkWholePieces,
   lineCostCents,
   parseQuantity,
@@ -393,15 +394,48 @@ describe('replay in date order (Q38, Q45)', () => {
 
 describe('fast path or replay (design note 2.3)', () => {
   it('uses the fast path for a line dated on or after the latest line, and for the first line', () => {
-    expect(canUseFastPath('purchase', '2026-11-03', null)).toBe(true);
-    expect(canUseFastPath('purchase', '2026-11-03', '2026-11-03')).toBe(true);
-    expect(canUseFastPath('run_use', '2026-11-04', '2026-11-03')).toBe(true);
+    expect(canUseFastPath('purchase', '2026-11-03', null, null)).toBe(true);
+    expect(canUseFastPath('purchase', '2026-11-03', '2026-11-03', null)).toBe(true);
+    expect(canUseFastPath('run_use', '2026-11-04', '2026-11-03', '2026-11-03')).toBe(true);
+  });
+
+  it('replays a non-count line dated on the date of a count, which now comes after it (D-46), but not a count itself', () => {
+    expect(canUseFastPath('purchase', '2026-11-03', '2026-11-03', '2026-11-03')).toBe(false);
+    expect(canUseFastPath('spillage', '2026-11-03', '2026-11-03', '2026-11-03')).toBe(false);
+    expect(canUseFastPath('run_use', '2026-11-03', '2026-11-03', '2026-11-03')).toBe(false);
+    expect(canUseFastPath('count_correction', '2026-11-03', '2026-11-03', '2026-11-03')).toBe(true);
+    // A count on an earlier date does not matter to a later line, nor to one on the latest date.
+    expect(canUseFastPath('purchase', '2026-11-04', '2026-11-04', '2026-11-03')).toBe(true);
+    expect(canUseFastPath('purchase', '2026-11-03', '2026-11-03', '2026-11-02')).toBe(true);
+    expect(canUseFastPath('count_correction', '2026-11-02', '2026-11-03', '2026-11-02')).toBe(false);
+  });
+
+  it('puts a count after every other kind on its date, then by id (D-46)', () => {
+    const rows = [
+      { id: 1, kind: 'count_correction', effectiveDate: '2026-11-03' },
+      { id: 2, kind: 'purchase', effectiveDate: '2026-11-03' },
+      { id: 3, kind: 'count_correction', effectiveDate: '2026-11-03' },
+      { id: 4, kind: 'spillage', effectiveDate: '2026-11-03' },
+      { id: 5, kind: 'purchase', effectiveDate: '2026-11-02' },
+      { id: 6, kind: 'count_correction', effectiveDate: '2026-11-02' },
+    ];
+    expect([...rows].sort(compareLedgerOrder).map((r) => r.id)).toEqual([5, 6, 2, 4, 1, 3]);
+  });
+
+  it('replays a same-day purchase before the count made earlier that day', () => {
+    // Buy 1000 for P1000 (1,000,000 e4 per unit) on day 1; a count on day 2 stores -200; a purchase on day 2 is entered after it.
+    const buy1 = line('2026-11-01', purchase(1_000_000, 100_000));
+    const count = line('2026-11-02', { kind: 'count_correction', quantityMilli: -200_000, totalCostCents: null });
+    const buy2 = line('2026-11-02', purchase(1_000_000, 300_000));
+    // Purchase first: (1,000,000 x 1,000,000 + 300,000 x 10^7) / 2,000,000 = 2,000,000; then the count: 1,800,000 on hand.
+    expect(replay([buy1, count, buy2])).toEqual({ onHandMilli: 1_800_000, avgE4: 2_000_000 });
+    expect(replaySteps([buy1, count, buy2]).map((s) => s.line.id)).toEqual([buy1.id, buy2.id, count.id]);
   });
 
   it('replays for a back-dated line and for every reversal', () => {
-    expect(canUseFastPath('purchase', '2026-11-02', '2026-11-03')).toBe(false);
-    expect(canUseFastPath('purchase_reversal', '2026-11-03', '2026-11-03')).toBe(false);
-    expect(canUseFastPath('purchase_reversal', '2026-11-03', null)).toBe(false);
+    expect(canUseFastPath('purchase', '2026-11-02', '2026-11-03', null)).toBe(false);
+    expect(canUseFastPath('purchase_reversal', '2026-11-03', '2026-11-03', null)).toBe(false);
+    expect(canUseFastPath('purchase_reversal', '2026-11-03', null, null)).toBe(false);
   });
 
   it('always agrees with a full replay, over many random ledgers', () => {
@@ -420,6 +454,7 @@ describe('fast path or replay (design note 2.3)', () => {
       const lines: LedgerLine[] = [];
       let cached: StockState = EMPTY_STOCK;
       let latest: string | null = null;
+      let latestCount: string | null = null;
       for (let step = 0; step < 25; step++) {
         // Mostly the same day as the latest line or the next, sometimes any earlier or later day.
         const latestDay = latest === null ? 1 : Number(latest.slice(8));
@@ -444,7 +479,7 @@ describe('fast path or replay (design note 2.3)', () => {
                   : { kind, quantityMilli: q, totalCostCents: null };
           next = line(date, entry);
         }
-        const fast = canUseFastPath(next.kind, next.effectiveDate, latest);
+        const fast = canUseFastPath(next.kind, next.effectiveDate, latest, latestCount);
         seen.dates.add(next.effectiveDate);
         if (next.kind === 'count_correction') seen[next.quantityMilli > 0 ? 'positiveCounts' : 'negativeCounts']++;
         if (fast && next.kind === 'purchase' && cached.onHandMilli > 0 && cached.avgE4 !== null) seen.weighted++;
@@ -453,6 +488,7 @@ describe('fast path or replay (design note 2.3)', () => {
         lines.push(next);
         cached = fast ? applyEntry(cached, next) : replay(lines);
         if (latest === null || next.effectiveDate > latest) latest = next.effectiveDate;
+        if (next.kind === 'count_correction' && (latestCount === null || next.effectiveDate > latestCount)) latestCount = next.effectiveDate;
       }
       expect(cached).toEqual(replay(lines));
       // The order the database returns lines in must not matter.

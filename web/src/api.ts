@@ -151,7 +151,7 @@ export interface Movement {
 
 export interface MovementHistory {
   ingredient: Ingredient;
-  /** By date, then by entry: oldest first. */
+  /** By date, a count last on its day, then by entry: oldest first. */
   movements: Movement[];
   reversibleMovementId: number | null;
 }

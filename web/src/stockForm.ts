@@ -76,28 +76,28 @@ export interface PurchaseWarningInput {
   isOwner: boolean;
 }
 
-/** What an entry is called in the D-44 warning: "A purchase ... on this purchase's own date". */
+/** What an entry is called in the D-44 warning: "A purchase dated on or before a count ...". */
 const ENTRY_WORDS = {
-  purchase: { subject: 'A purchase', own: "this purchase's" },
-  opening: { subject: 'An opening balance', own: "this opening balance's" },
-  spillage: { subject: 'A spillage entry', own: "this spillage entry's" },
-  spoilage: { subject: 'A spoilage entry', own: "this spoilage entry's" },
+  purchase: { subject: 'A purchase' },
+  opening: { subject: 'An opening balance' },
+  spillage: { subject: 'A spillage entry' },
+  spoilage: { subject: 'A spoilage entry' },
 } as const;
 export type WarnedEntry = keyof typeof ENTRY_WORDS;
 
 /**
  * D-44, owner wording. A count stores only the difference from its own date and is not worked out again, so an entry
- * dated on or before it moves on hand away from what was counted (and can change later averages). The purchase text
- * is the one P4-12 shipped, word for word.
+ * dated on or before it moves on hand away from what was counted (and can change later averages). Since D-46 a count is
+ * replayed last on its date, so the old line about a count on the entry's own date is gone.
  */
 function ownerRecountWarning(entry: WarnedEntry, date: string, lastCountDate: string): string {
-  const { subject, own } = ENTRY_WORDS[entry];
+  const { subject } = ENTRY_WORDS[entry];
   return (
     `This ingredient was last counted on ${dateText(lastCountDate)}. ${subject} dated on or before a count moves on hand away from what was counted, ` +
     'and can change the average. To put it right after saving, enter again every count dated on or after ' +
     `${dateText(date)}, each on its own date with the number you counted then, oldest first. Once the first is entered ` +
-    'again, the later ones will usually answer "nothing to correct", which means stock is right. A count dated today, ' +
-    `or on ${own} own date, puts stock right but may not put the average right.`
+    'again, the later ones will usually answer "nothing to correct", which means stock is right. A count dated today ' +
+    'puts stock right but may not put the average right.'
   );
 }
 
@@ -138,6 +138,9 @@ export function correctionWarnings({ kind, date, lastCountDate }: { kind: Correc
   }
   return date <= lastCountDate ? [ownerRecountWarning(kind, date, lastCountDate)] : [];
 }
+
+/** D-51: shown on the count form. A count is the stock at the end of its day, and it is worked out after the other entries of that day. */
+export const COUNT_END_OF_DAY_NOTE = 'A count is the stock at the end of the day. Count after the day’s runs and other entries are done and entered.';
 
 /** The line shown for each kind of ledger line. */
 export const MOVEMENT_LABELS: Record<string, string> = {

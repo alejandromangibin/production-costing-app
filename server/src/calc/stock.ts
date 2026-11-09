@@ -210,11 +210,26 @@ function checkStoredLine(line: LedgerLine): void {
 }
 
 /**
+ * The one order the ledger is replayed in, used by the replay, the history screen and the fast-path test (design note 2.3).
+ * By date; on one date a stock count comes last, because it is the stock at the end of the day (D-46); then by id.
+ */
+export function compareLedgerOrder(
+  a: { effectiveDate: string; kind: string; id: number },
+  b: { effectiveDate: string; kind: string; id: number },
+): number {
+  if (a.effectiveDate !== b.effectiveDate) return a.effectiveDate < b.effectiveDate ? -1 : 1;
+  const aCount = a.kind === 'count_correction';
+  if (aCount !== (b.kind === 'count_correction')) return aCount ? 1 : -1;
+  return a.id - b.id;
+}
+
+/**
  * Replay the whole ledger of one ingredient and return every step: each line that counts, in the order
  * it counts, with on hand and the average after it (design note 2.3). The price history (INV-10) and the
  * stock check (2.4) use the steps; `replay` uses the last one.
  *
- * Lines are taken in date order, then entry order (id). A reversed line and its reversal are both left
+ * Lines are taken in date order; on one date every count comes after every other kind (D-46), and within those, entry
+ * order (id): see `compareLedgerOrder`. A reversed line and its reversal are both left
  * out. The ledger is assumed to hold one ingredient only. A reversal must point at an opening balance or
  * purchase in the list, with the opposite quantity and the same date, at most once. Anything else is a
  * broken ledger and throws a plain Error naming the line.
@@ -245,7 +260,7 @@ export function replaySteps(lines: readonly LedgerLine[]): { line: LedgerLine; a
 
   const ordered = lines
     .filter((l) => l.kind !== 'purchase_reversal' && !reversed.has(l.id))
-    .sort((a, b) => (a.effectiveDate === b.effectiveDate ? a.id - b.id : a.effectiveDate < b.effectiveDate ? -1 : 1));
+    .sort(compareLedgerOrder);
   const steps: { line: LedgerLine; after: StockState }[] = [];
   let state = EMPTY_STOCK;
   for (const line of ordered) {
@@ -267,12 +282,16 @@ export function replay(lines: readonly LedgerLine[]): StockState {
 
 /**
  * Whether a new line can be applied to the cached copy (the fast path), or the whole ledger must be
- * replayed: any back-dated line, and every reversal (design note 2.3). `latestDate` is the latest
- * effective date already in the ingredient's ledger, null when it is empty.
+ * replayed (design note 2.3). The new line has the largest id, so it lands last in the replay order only if no
+ * existing line is dated after it and, for any kind but a count, no count is dated the same day (a count
+ * comes last on its date, D-46). Every reversal replays. `latestDate` and `latestCountDate` are the latest
+ * effective dates already in the ingredient's ledger, overall and among counts; null when there are none.
  */
-export function canUseFastPath(kind: MovementKind, effectiveDate: string, latestDate: string | null): boolean {
+export function canUseFastPath(kind: MovementKind, effectiveDate: string, latestDate: string | null, latestCountDate: string | null): boolean {
   if (kind === 'purchase_reversal') return false;
-  return latestDate === null || effectiveDate >= latestDate;
+  if (latestDate !== null && effectiveDate < latestDate) return false;
+  // A count dated on the new date can only be the latest count: nothing is dated later than the latest line.
+  return kind === 'count_correction' || latestCountDate !== effectiveDate;
 }
 
 const DECIMALS: Record<EntryUnit, number> = { g: 3, mL: 3, pc: 0, kg: 6, L: 6 };
