@@ -320,7 +320,7 @@ describe('who can record a purchase (INV-14)', () => {
     expect(r.status).toBe(201);
     expect(r.body).toEqual({
       movementId: r.body.movementId,
-      ingredient: { id: soy, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 400_000, lowStockMilli: null, active: true },
+      ingredient: { id: soy, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 400_000, lowStockMilli: null, active: true, lastCountDate: null },
     });
     expect(r.text).not.toMatch(/avg/i);
     expect(r.text).not.toContain('250000');

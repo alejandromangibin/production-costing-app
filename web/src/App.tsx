@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Account } from './pages/Account';
 import { Admin } from './pages/Admin';
 import { Expiry } from './pages/Expiry';
+import { Ingredients } from './pages/Ingredients';
 import { Login } from './pages/Login';
 import { Margins } from './pages/Margins';
 import { NewRun } from './pages/NewRun';
@@ -57,6 +58,7 @@ export function App() {
         { to: '/expiry', label: 'Expiry' },
         { to: '/margins', label: 'Margins' },
         { to: '/products', label: 'Products' },
+        { to: '/ingredients', label: 'Ingredients' },
         ...(isOwner ? [{ to: '/team', label: 'Team' }] : []),
       ];
   links.push({ to: '/account', label: 'Account' });
@@ -97,6 +99,7 @@ export function App() {
               <Route path="/expiry" element={<Expiry />} />
               <Route path="/margins" element={<Margins />} />
               <Route path="/products" element={<Products />} />
+              <Route path="/ingredients" element={<Ingredients />} />
               {isOwner && <Route path="/team" element={<Team />} />}
             </>
           )}

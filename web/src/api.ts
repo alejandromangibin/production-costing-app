@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { BaseUnit } from './stockForm';
 
 export class ApiError extends Error {
   constructor(
@@ -101,6 +102,25 @@ export interface PackSizeChange {
   active: boolean;
   changedByName: string;
   changedAt: string;
+}
+
+/** An ingredient. avgCostE4 (1/10,000 centavo per base unit) is sent to the owner only (INV-14). */
+export interface Ingredient {
+  id: number;
+  name: string;
+  baseUnit: BaseUnit;
+  /** Thousandths of the base unit; may be below zero. */
+  onHandMilli: number;
+  lowStockMilli: number | null;
+  active: boolean;
+  /** The latest stock count that stored a difference (D-44). */
+  lastCountDate: string | null;
+  avgCostE4?: number | null;
+}
+
+export interface PurchaseResult {
+  movementId: number;
+  ingredient: Ingredient;
 }
 
 export interface Product {
@@ -256,6 +276,8 @@ export interface Access {
 
 export interface Me {
   user: { id: number; email: string; name: string; role: 'owner' | 'staff' | 'platform_admin' };
+  /** The business's time zone, e.g. Asia/Manila. */
+  timeZone: string;
   tenant: { id: number; name: string; status: TenantStatus; trialEndsOn: string; paidThrough: string | null; access: Access } | null;
 }
 

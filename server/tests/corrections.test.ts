@@ -571,3 +571,37 @@ describe('order of work inside the save (design note 4, rule 1)', () => {
     expect(seen[0]).toContain('FOR NO KEY UPDATE');
   });
 });
+
+describe('the date of the latest count, for the form warnings (D-44)', () => {
+  const lastCount = async (agent = owner, id = soy) => (await agent.get(`/api/ingredients/${id}`).expect(200)).body.lastCountDate;
+
+  it('is empty until a count stores a difference, and ignores purchases, losses and counts that matched', async () => {
+    expect(await lastCount()).toBeNull();
+    await opened({ effectiveDate: addDays(today(), -9) });
+    await buy({ effectiveDate: addDays(today(), -3) });
+    await corrected('spillage', '10', { effectiveDate: addDays(today(), -2) });
+    expect(await lastCount()).toBeNull();
+    expect((await correct('count_correction', '1090', { effectiveDate: addDays(today(), -2) })).status).toBe(400);
+    expect(await lastCount()).toBeNull();
+  });
+
+  it('gives the latest count by date, not the one entered last, to staff and owner alike', async () => {
+    await opened({ effectiveDate: addDays(today(), -9) });
+    await corrected('count_correction', '900', { effectiveDate: addDays(today(), -4) });
+    await corrected('count_correction', '800', { effectiveDate: addDays(today(), -6) });
+    expect(await lastCount()).toBe(addDays(today(), -4));
+    expect(await lastCount(staff)).toBe(addDays(today(), -4));
+    const list = (await staff.get('/api/ingredients').expect(200)).body;
+    expect(list[0].lastCountDate).toBe(addDays(today(), -4));
+    // A purchase answer carries it too, so the form stays current after saving.
+    expect((await buy({ effectiveDate: addDays(today(), -5) })).body.ingredient.lastCountDate).toBe(addDays(today(), -4));
+  });
+
+  it('is kept per ingredient, and another business never sees it', async () => {
+    const vinegar = await addIngredient('Vinegar', 'mL');
+    await opened({ effectiveDate: addDays(today(), -9) });
+    await corrected('count_correction', '900', { effectiveDate: addDays(today(), -4) });
+    expect(await lastCount(owner, vinegar)).toBeNull();
+    expect((await other.get(`/api/ingredients/${soy}`)).status).toBe(404);
+  });
+});

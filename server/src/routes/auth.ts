@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { FailureLimiter } from '../auth/rateLimit';
 import { type AuthKit, buildAuth } from '../auth/middleware';
+import { config } from '../config';
 import { type Db } from '../db/index';
 import { HttpError } from '../errors';
 import { acceptBody, loginBody, passwordBody } from '../schemas';
@@ -10,6 +11,8 @@ function mePayload(auth: NonNullable<Express.Request['auth']>) {
   const { user, tenant, access } = auth;
   return {
     user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    // The business's own time zone, so forms can tell what today is there (APP_TIME_ZONE).
+    timeZone: config.timeZone,
     tenant: tenant
       ? {
           id: tenant.id,

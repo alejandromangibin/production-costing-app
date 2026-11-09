@@ -18,10 +18,15 @@ export function centsToInput(cents: number | null | undefined): string {
 
 /**
  * Read a peso amount typed by the owner ("1,250.50") into centavos.
- * Returns null for blank or invalid text.
+ * Returns null for blank or invalid text. A comma is taken only as a thousands separator in its proper place:
+ * "1250,50" or "1,5" is refused, not read as 125050 or 15.
  */
 export function parseCents(text: string): number | null {
-  const t = text.replaceAll(',', '').replace(/^₱/, '').trim();
+  let t = text.trim().replace(/^₱/, '').trim();
+  if (t.includes(',')) {
+    if (!/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(t)) return null;
+    t = t.replaceAll(',', '');
+  }
   if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
   const [whole, frac = ''] = t.split('.');
   const cents = Number(whole) * 100 + Number(frac.padEnd(2, '0'));
@@ -36,6 +41,13 @@ export function parseCount(text: string): number {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Today's date in a time zone, as YYYY-MM-DD: the business's today, whatever the device's clock is set to. */
+export function todayIn(timeZone: string, now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
 
 export function todayISO(): string {
   const d = new Date();

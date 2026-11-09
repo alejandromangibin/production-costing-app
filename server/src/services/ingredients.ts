@@ -14,6 +14,11 @@ export interface Ingredient {
   onHandMilli: number;
   lowStockMilli: number | null;
   active: boolean;
+  /**
+   * Date of the latest stock count that stored a difference, or null. A purchase or loss dated on or before it
+   * moves on hand away from what was counted, so the forms warn (D-44). A count that matched stored nothing.
+   */
+  lastCountDate: string | null;
 }
 
 /** The owner also sees the average, in 1/10,000 centavo per base unit. Null until the first purchase. */
@@ -31,12 +36,15 @@ function toIngredient(r: Row): Ingredient {
     onHandMilli: toSafeInteger(r.on_hand_milli),
     lowStockMilli: nullableInteger(r.low_stock_milli),
     active: r.active as boolean,
+    lastCountDate: (r.last_count_date as string | null) ?? null,
   };
 }
 
 const toIngredientWithCost = (r: Row): IngredientWithCost => ({ ...toIngredient(r), avgCostE4: nullableInteger(r.avg_cost_e4) });
 
-const COLUMNS = 'id, name, base_unit, on_hand_milli, low_stock_milli, active';
+const COLUMNS = `id, name, base_unit, on_hand_milli, low_stock_milli, active,
+  (SELECT max(m.effective_date)::text FROM stock_movements m
+   WHERE m.ingredient_id = ingredients.id AND m.kind = 'count_correction') AS last_count_date`;
 // Costs are left out of the query for staff, not removed afterwards, so they cannot leak through a new field.
 const COST_COLUMNS = `${COLUMNS}, avg_cost_e4`;
 

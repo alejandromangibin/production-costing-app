@@ -47,7 +47,7 @@ async function recordStock(id: number) {
 describe('the owner keeps the ingredient list (INV-01)', () => {
   it('adds an ingredient with nothing on hand and no average, and saves who added it', async () => {
     const soy = await add();
-    expect(soy).toEqual({ id: soy.id, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 0, lowStockMilli: null, active: true, avgCostE4: null });
+    expect(soy).toEqual({ id: soy.id, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 0, lowStockMilli: null, active: true, lastCountDate: null, avgCostE4: null });
     const row = (await scopedDb(db, tenantId).query<any>('SELECT created_by_name, created_by_user_id FROM ingredients WHERE id = $1', [soy.id])).rows[0];
     expect(row.created_by_name).toBe('Frozen Foods Owner');
     expect(row.created_by_user_id).toBeGreaterThan(0);
@@ -217,7 +217,7 @@ describe('who can do what (INV-14)', () => {
   it('shows staff names, units and quantities, and never a cost', async () => {
     const soy = await add();
     await recordStock(soy.id);
-    const quantities = { id: soy.id, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 500000, lowStockMilli: null, active: true };
+    const quantities = { id: soy.id, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: 500000, lowStockMilli: null, active: true, lastCountDate: null };
     const list = await staff.get('/api/ingredients');
     expect(list.status).toBe(200);
     expect(list.body).toEqual([quantities]);
@@ -317,7 +317,7 @@ describe('what the database driver hands back', () => {
 
   it('turns bigint strings (node-postgres) and BigInts into exact numbers', async () => {
     const strings = fake([{ ...row, on_hand_milli: '-10000000000', low_stock_milli: '5000', avg_cost_e4: '1000000000000' }]);
-    const expected = { id: 7, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: -10_000_000_000, lowStockMilli: 5000, active: true };
+    const expected = { id: 7, name: 'Soy sauce', baseUnit: 'mL', onHandMilli: -10_000_000_000, lowStockMilli: 5000, active: true, lastCountDate: null };
     expect(await listIngredientsWithCost(strings.q)).toEqual([{ ...expected, avgCostE4: 1_000_000_000_000 }]);
     expect(await getIngredientWithCost(strings.q, 7)).toEqual({ ...expected, avgCostE4: 1_000_000_000_000 });
     expect(await listIngredients(strings.q)).toEqual([expected]);

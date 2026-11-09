@@ -51,6 +51,7 @@ describe('login', () => {
     expect(me.body.user).toMatchObject({ email: 'owner@a.test', role: 'owner' });
     expect(me.body.tenant).toMatchObject({ name: 'Frozen Foods', status: 'trial' });
     expect(me.body.tenant.access.level).toBe('full');
+    expect(me.body.timeZone).toBe('Asia/Manila');
     expect(JSON.stringify(me.body)).not.toMatch(/password|hash/i);
 
     await agent.post('/api/auth/logout').expect(200);
