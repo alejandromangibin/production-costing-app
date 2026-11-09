@@ -501,6 +501,12 @@ this for the price history.
 
 - **A past average can change.** A back-dated entry changes the "average after each purchase" shown in the
   ingredient price history (INV-10), because it is worked out again in date order. Saved runs never change.
+- **An old count is not reworked.** A count stores only the difference from that day. If something is later
+  back-dated before the count, on hand moves by that amount, past what was counted, and later averages move too.
+  On hand can even go below zero, which blocks new runs until it is corrected. A count dated today corrects stock
+  but not the average. To repair both, count again on the old date, typing the same number, then enter any later
+  counts again too, oldest date first: each recount is itself dated before them, so until then on hand looks wrong.
+  The last one may answer "nothing to correct", which means stock is already right.
 - **A void return can come before its run.** A void return is dated the day of the void. If a run was dated
   in the future and then voided before that date, its stock comes back before it was used, in date order.
   This only shifts the averages of purchases in between.
