@@ -76,6 +76,31 @@ export interface PurchaseWarningInput {
   isOwner: boolean;
 }
 
+/** What an entry is called in the D-44 warning: "A purchase ... on this purchase's own date". */
+const ENTRY_WORDS = {
+  purchase: { subject: 'A purchase', own: "this purchase's" },
+  opening: { subject: 'An opening balance', own: "this opening balance's" },
+  spillage: { subject: 'A spillage entry', own: "this spillage entry's" },
+  spoilage: { subject: 'A spoilage entry', own: "this spoilage entry's" },
+} as const;
+export type WarnedEntry = keyof typeof ENTRY_WORDS;
+
+/**
+ * D-44, owner wording. A count stores only the difference from its own date and is not worked out again, so an entry
+ * dated on or before it moves on hand away from what was counted (and can change later averages). The purchase text
+ * is the one P4-12 shipped, word for word.
+ */
+function ownerRecountWarning(entry: WarnedEntry, date: string, lastCountDate: string): string {
+  const { subject, own } = ENTRY_WORDS[entry];
+  return (
+    `This ingredient was last counted on ${dateText(lastCountDate)}. ${subject} dated on or before a count moves on hand away from what was counted, ` +
+    'and can change the average. To put it right after saving, enter again every count dated on or after ' +
+    `${dateText(date)}, each on its own date with the number you counted then, oldest first. Once the first is entered ` +
+    'again, the later ones will usually answer "nothing to correct", which means stock is right. A count dated today, ' +
+    `or on ${own} own date, puts stock right but may not put the average right.`
+  );
+}
+
 /** Warnings shown on the purchase form while typing. None of them stops the purchase being saved. */
 export function purchaseWarnings({ date, expiryDate, lastCountDate, isOwner }: PurchaseWarningInput): string[] {
   const warnings: string[] = [];
@@ -83,21 +108,92 @@ export function purchaseWarnings({ date, expiryDate, lastCountDate, isOwner }: P
   if (date && expiryDate && expiryDate < date) {
     warnings.push('The expiry date is before the purchase date. Check both dates. You can still save it if they are right.');
   }
-  // D-44: a count stores only the difference from its own date and is not worked out again, so an entry dated
-  // on or before it moves on hand away from what was counted (and can change later averages).
   if (date && lastCountDate && date <= lastCountDate) {
-    const when = dateText(lastCountDate);
     warnings.push(
       isOwner
-        ? `This ingredient was last counted on ${when}. A purchase dated on or before a count moves on hand away from what was counted, ` +
-            'and can change the average. To put it right after saving, enter again every count dated on or after ' +
-            `${dateText(date)}, each on its own date with the number you counted then, oldest first. Once the first is entered ` +
-            'again, the later ones will usually answer "nothing to correct", which means stock is right. A count dated today, ' +
-            "or on this purchase's own date, puts stock right but may not put the average right."
-        : `This ingredient was last counted on ${when}. A purchase dated on or before that makes on hand differ from the count. ` +
+        ? ownerRecountWarning('purchase', date, lastCountDate)
+        : `This ingredient was last counted on ${dateText(lastCountDate)}. A purchase dated on or before that makes on hand differ from the count. ` +
             `You can still save it. Then tell the owner you entered a purchase dated ${dateText(date)}, so they can put the counts right.`,
     );
   }
   return warnings;
 }
 
+export type CorrectionKind = 'count_correction' | 'spillage' | 'spoilage' | 'opening';
+
+/**
+ * Warnings on the owner's correction forms (D-44), never blocking. An opening balance, spillage or spoilage dated on
+ * or before the latest count; a count dated strictly before the latest count (one on the same date as it is fine).
+ */
+export function correctionWarnings({ kind, date, lastCountDate }: { kind: CorrectionKind; date: string; lastCountDate: string | null }): string[] {
+  if (!date || !lastCountDate) return [];
+  if (kind === 'count_correction') {
+    if (date >= lastCountDate) return [];
+    return [
+      `This ingredient was last counted on ${dateText(lastCountDate)}. A count dated before a later count moves on hand away from what that later count found. ` +
+        `To put it right after saving, enter again every count dated after ${dateText(date)}, each on its own date with the number you counted then, ` +
+        'oldest first. Once the first is entered again, the later ones will usually answer "nothing to correct", which means stock is right. ' +
+        'A count dated today puts stock right but may not put the average right.',
+    ];
+  }
+  return date <= lastCountDate ? [ownerRecountWarning(kind, date, lastCountDate)] : [];
+}
+
+/** The line shown for each kind of ledger line. */
+export const MOVEMENT_LABELS: Record<string, string> = {
+  purchase: 'Purchase',
+  opening: 'Opening balance',
+  purchase_reversal: 'Reversal',
+  run_use: 'Used in a run',
+  void_return: 'Returned from a voided run',
+  spillage: 'Spillage',
+  spoilage: 'Spoilage',
+  count_correction: 'Count',
+};
+
+export function movementLabel(kind: string): string {
+  return MOVEMENT_LABELS[kind] ?? kind;
+}
+
+/** A change in quantity with its sign: "+1,000 mL", "-200 mL". */
+export function changeText(milli: number, baseUnit: BaseUnit): string {
+  return `${milli > 0 ? '+' : ''}${quantityText(milli, baseUnit)}`;
+}
+
+/**
+ * The notice on a line entered after a count that no longer matches (D-44). `countDate` is the oldest such count, where
+ * entering counts again starts. For a count line the instruction says "after", so it never asks for that count again.
+ */
+export function recountNotice(lineDate: string, countDate: string, lineIsCount = false): string {
+  const start = lineIsCount
+    ? `A later count, dated ${dateText(countDate)}, no longer matches. Enter again every count dated after ${dateText(lineDate)}, oldest first.`
+    : `The count dated ${dateText(countDate)} no longer matches. Enter again every count dated on or after ${dateText(countDate)}, oldest first.`;
+  return `${start} A count that answers "nothing to correct" is fine: it means stock is right.`;
+}
+
+/** What the owner is told after a correction is saved: the figure the server stored, and on hand now. */
+export function correctionSavedText(input: {
+  kind: CorrectionKind;
+  date: string;
+  baseUnit: BaseUnit;
+  /** The stored signed change, thousandths. */
+  quantityMilli: number;
+  totalCostCents?: number | null;
+  onHandNowMilli: number;
+}): string {
+  const { kind, date, baseUnit, quantityMilli, onHandNowMilli } = input;
+  const now = `On hand now ${quantityText(onHandNowMilli, baseUnit)}.`;
+  switch (kind) {
+    case 'count_correction':
+      return `Saved the count dated ${dateText(date)}. The difference recorded is ${changeText(quantityMilli, baseUnit)}. ${now}`;
+    case 'opening':
+      return `Saved the opening balance of ${quantityText(quantityMilli, baseUnit)} for ${peso(input.totalCostCents)}, dated ${dateText(date)}. ${now}`;
+    default:
+      return `Saved ${kind === 'spillage' ? 'the spillage' : 'the spoilage'} of ${quantityText(-quantityMilli, baseUnit)}, dated ${dateText(date)}. ${now}`;
+  }
+}
+
+/** The server's answer to a count that matches the recorded stock. It means stock is right, so it is not shown as an error. */
+export function isNothingToCorrect(message: string): boolean {
+  return message.startsWith('Nothing to correct');
+}

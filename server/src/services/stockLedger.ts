@@ -177,6 +177,8 @@ export async function recordPurchase(
 
 export interface OwnerStockResult {
   movementId: number;
+  /** The signed change stored on the line, thousandths: for a count, the difference and not the number typed. */
+  quantityMilli: number;
   ingredient: IngredientWithCost;
 }
 
@@ -203,19 +205,20 @@ export async function recordOpening(db: Db, ingredientId: number, input: z.infer
     return await db.tx(async (q) => {
       const ingredient = (await lockIngredients(q, [ingredientId])).get(ingredientId)!;
       if (await hasStandingOpening(q, ingredientId)) throw conflict('This ingredient already has an opening balance.');
+      const quantityMilli = parseQuantity(input.quantity, input.unit, ingredient.baseUnit);
       const movementId = await addLedgerLine(
         q,
         ingredient,
         {
           kind: 'opening',
-          quantityMilli: parseQuantity(input.quantity, input.unit, ingredient.baseUnit),
+          quantityMilli,
           totalCostCents: input.totalCostCents,
           effectiveDate: input.effectiveDate,
           reason: input.reason,
         },
         actor,
       );
-      return { movementId, ingredient: await getIngredientWithCost(q, ingredientId) };
+      return { movementId, quantityMilli, ingredient: await getIngredientWithCost(q, ingredientId) };
     });
   } catch (err) {
     throw plainRefusal(err);
@@ -261,10 +264,42 @@ export async function recordCorrection(db: Db, ingredientId: number, input: z.in
         { kind: input.kind, quantityMilli, totalCostCents: null, effectiveDate: input.effectiveDate, reason: input.reason },
         actor,
       );
-      return { movementId, ingredient: await getIngredientWithCost(q, ingredientId) };
+      return { movementId, quantityMilli, ingredient: await getIngredientWithCost(q, ingredientId) };
     });
   } catch (err) {
     throw plainRefusal(err);
+  }
+}
+
+/**
+ * The rule for reversing a line (D-42, D-43, D-45), in one place: reverseEntry applies it and the history screen
+ * asks it which line can be reversed now. Returns the line, or throws the refusal the person sees.
+ */
+export function checkReversible(lines: readonly LedgerLine[], movementId: number): LedgerLine {
+  const target = lines.find((l) => l.id === movementId);
+  if (!target) throw notFound('Stock entry not found');
+  if (target.kind !== 'purchase' && target.kind !== 'opening') throw badRequest('Only a purchase or an opening balance can be reversed.');
+  const reversed = new Set(lines.map((l) => l.reversesMovementId));
+  if (reversed.has(target.id)) throw conflict('This entry has already been reversed.');
+
+  const standing = lines.filter((l) => l.kind !== 'purchase_reversal' && !reversed.has(l.id));
+  if (standing.some((l) => l.id > target.id)) {
+    throw conflict('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
+  }
+  return target;
+}
+
+/** The id of the one line that checkReversible accepts now, or null. Only the newest purchase or opening not yet reversed can pass. */
+export function reversibleMovementId(lines: readonly LedgerLine[]): number | null {
+  const reversed = new Set(lines.map((l) => l.reversesMovementId));
+  const candidate = lines
+    .filter((l) => (l.kind === 'purchase' || l.kind === 'opening') && !reversed.has(l.id))
+    .reduce<LedgerLine | null>((best, l) => (best === null || l.id > best.id ? l : best), null);
+  if (!candidate) return null;
+  try {
+    return checkReversible(lines, candidate.id).id;
+  } catch {
+    return null;
   }
 }
 
@@ -287,17 +322,7 @@ export async function reverseEntry(
   try {
     return await db.tx(async (q) => {
       const ingredient = (await lockIngredients(q, [ingredientId])).get(ingredientId)!;
-      const lines = await ledgerLines(q, ingredientId);
-      const target = lines.find((l) => l.id === movementId);
-      if (!target) throw notFound('Stock entry not found');
-      if (target.kind !== 'purchase' && target.kind !== 'opening') throw badRequest('Only a purchase or an opening balance can be reversed.');
-      const reversed = new Set(lines.map((l) => l.reversesMovementId));
-      if (reversed.has(target.id)) throw conflict('This entry has already been reversed.');
-
-      const standing = lines.filter((l) => l.kind !== 'purchase_reversal' && !reversed.has(l.id));
-      if (standing.some((l) => l.id > target.id)) {
-        throw conflict('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
-      }
+      const target = checkReversible(await ledgerLines(q, ingredientId), movementId);
 
       const reversalId = await addLedgerLine(
         q,
@@ -312,7 +337,7 @@ export async function reverseEntry(
         },
         actor,
       );
-      return { movementId: reversalId, ingredient: await getIngredientWithCost(q, ingredientId) };
+      return { movementId: reversalId, quantityMilli: -target.quantityMilli, ingredient: await getIngredientWithCost(q, ingredientId) };
     });
   } catch (err) {
     throw plainRefusal(err);

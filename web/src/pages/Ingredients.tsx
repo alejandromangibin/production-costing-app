@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, api, useLoad, type Ingredient, type PurchaseResult } from '../api';
 import { useAuth } from '../auth';
 import { Badge, Empty, ErrorNote, Loading } from '../components';
@@ -108,6 +109,7 @@ export function Ingredients() {
                         Record purchase
                       </button>
                     )}{' '}
+                    {isOwner && <Link to={`/ingredients/${i.id}`}>History and corrections</Link>}{' '}
                     {isOwner && canWrite && (
                       <button className="link" onClick={() => show({ kind: 'edit', id: i.id })}>
                         Edit

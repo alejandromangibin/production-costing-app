@@ -1,7 +1,20 @@
 // The purchase form's own checks and wording (P4-12). They live in the web app; the server checks again.
 import { describe, expect, it } from 'vitest';
 import { parseCents, todayIn } from '../../web/src/format';
-import { averageText, checkQuantity, convertedText, overAYearAgo, purchaseWarnings, quantityText } from '../../web/src/stockForm';
+import {
+  averageText,
+  changeText,
+  checkQuantity,
+  convertedText,
+  correctionSavedText,
+  correctionWarnings,
+  isNothingToCorrect,
+  movementLabel,
+  overAYearAgo,
+  purchaseWarnings,
+  quantityText,
+  recountNotice,
+} from '../../web/src/stockForm';
 
 describe('quantities on the ingredient list', () => {
   it('shows thousandths exactly, with no rounding', () => {
@@ -147,5 +160,106 @@ describe('warnings on the purchase form', () => {
 
   it('can give both warnings at once', () => {
     expect(purchaseWarnings({ ...base, date: '2026-11-01', expiryDate: '2026-10-30', lastCountDate: '2026-11-03' })).toHaveLength(2);
+  });
+});
+
+describe('what each kind of stock change is called', () => {
+  it('uses plain words for every kind the ledger allows', () => {
+    expect(['purchase', 'opening', 'purchase_reversal', 'run_use', 'void_return', 'spillage', 'spoilage', 'count_correction'].map(movementLabel)).toEqual([
+      'Purchase',
+      'Opening balance',
+      'Reversal',
+      'Used in a run',
+      'Returned from a voided run',
+      'Spillage',
+      'Spoilage',
+      'Count',
+    ]);
+    expect(movementLabel('something_new')).toBe('something_new');
+  });
+
+  it('shows a change with its sign', () => {
+    expect(changeText(1_000_000, 'mL')).toBe('+1,000 mL');
+    expect(changeText(-200_000, 'mL')).toBe('-200 mL');
+    expect(changeText(0, 'pc')).toBe('0 pc');
+  });
+});
+
+describe('warnings on the owner correction forms (D-44)', () => {
+  const last = '2026-11-03';
+
+  it('warns for an opening balance, spillage or spoilage dated on or before the latest count, in the purchase wording', () => {
+    const purchase = purchaseWarnings({ date: '2026-10-01', expiryDate: '', lastCountDate: last, isOwner: true })[0]!;
+    expect(correctionWarnings({ kind: 'spillage', date: '2026-10-01', lastCountDate: last })).toEqual([
+      purchase.replace('A purchase dated', 'A spillage entry dated').replace("this purchase's own date", "this spillage entry's own date"),
+    ]);
+    const [opening] = correctionWarnings({ kind: 'opening', date: '2026-11-03', lastCountDate: last });
+    expect(opening).toContain('This ingredient was last counted on Nov 3, 2026. An opening balance dated on or before a count moves on hand');
+    expect(opening).toContain('every count dated on or after Nov 3, 2026');
+    expect(opening).toContain('"nothing to correct"');
+    expect(opening).toContain("or on this opening balance's own date, puts stock right but may not put the average right.");
+    expect(correctionWarnings({ kind: 'spoilage', date: '2026-11-03', lastCountDate: last })[0]).toContain('A spoilage entry dated on or before a count');
+  });
+
+  it('does not warn after the latest count, or when there has been no count', () => {
+    expect(correctionWarnings({ kind: 'spillage', date: '2026-11-04', lastCountDate: last })).toEqual([]);
+    expect(correctionWarnings({ kind: 'opening', date: '2026-10-01', lastCountDate: null })).toEqual([]);
+    expect(correctionWarnings({ kind: 'count_correction', date: '2026-10-01', lastCountDate: null })).toEqual([]);
+    expect(correctionWarnings({ kind: 'spillage', date: '', lastCountDate: last })).toEqual([]);
+  });
+
+  it('warns for a count dated strictly before the latest count, but not one on the same date or later', () => {
+    const [w] = correctionWarnings({ kind: 'count_correction', date: '2026-10-01', lastCountDate: last });
+    expect(w).toContain('last counted on Nov 3, 2026');
+    expect(w).toContain('enter again every count dated after Oct 1, 2026');
+    expect(w).toContain('oldest first');
+    expect(w).toContain('"nothing to correct"');
+    expect(w).toContain('A count dated today puts stock right but may not put the average right.');
+    expect(correctionWarnings({ kind: 'count_correction', date: last, lastCountDate: last })).toEqual([]);
+    expect(correctionWarnings({ kind: 'count_correction', date: '2026-11-04', lastCountDate: last })).toEqual([]);
+  });
+});
+
+describe('what the owner reads after a save', () => {
+  it('says what a count stored, not what was typed', () => {
+    expect(correctionSavedText({ kind: 'count_correction', date: '2026-11-03', baseUnit: 'mL', quantityMilli: -200_000, onHandNowMilli: 1_800_000 })).toBe(
+      'Saved the count dated Nov 3, 2026. The difference recorded is -200 mL. On hand now 1,800 mL.',
+    );
+    expect(correctionSavedText({ kind: 'count_correction', date: '2026-11-03', baseUnit: 'g', quantityMilli: 500_000, onHandNowMilli: 2_500_000 })).toContain(
+      'difference recorded is +500 g',
+    );
+  });
+
+  it('says the amount lost for spillage and spoilage, and the cost for an opening balance', () => {
+    expect(correctionSavedText({ kind: 'spillage', date: '2026-11-03', baseUnit: 'mL', quantityMilli: -500_000, onHandNowMilli: 0 })).toBe(
+      'Saved the spillage of 500 mL, dated Nov 3, 2026. On hand now 0 mL.',
+    );
+    expect(correctionSavedText({ kind: 'spoilage', date: '2026-11-03', baseUnit: 'pc', quantityMilli: -3_000, onHandNowMilli: -1_000 })).toBe(
+      'Saved the spoilage of 3 pc, dated Nov 3, 2026. On hand now -1 pc.',
+    );
+    expect(correctionSavedText({ kind: 'opening', date: '2026-11-03', baseUnit: 'g', quantityMilli: 2_000_000, totalCostCents: 125_050, onHandNowMilli: 2_000_000 })).toBe(
+      'Saved the opening balance of 2,000 g for ₱1,250.50, dated Nov 3, 2026. On hand now 2,000 g.',
+    );
+  });
+
+  it('recognises the server answer for a matching count, which is good news and not an error', () => {
+    expect(isNothingToCorrect('Nothing to correct: the count matches the recorded stock for that date.')).toBe(true);
+    expect(isNothingToCorrect('The date cannot be in the future.')).toBe(false);
+  });
+
+  it('words the notice on a line that needs a recount, naming the oldest count that no longer matches', () => {
+    expect(recountNotice('2026-10-01', '2026-11-03')).toBe(
+      'The count dated Nov 3, 2026 no longer matches. Enter again every count dated on or after Nov 3, 2026, oldest first. ' +
+        'A count that answers "nothing to correct" is fine: it means stock is right.',
+    );
+  });
+
+  it('never asks for a count line itself to be entered again', () => {
+    const text = recountNotice('2026-10-01', '2026-11-03', true);
+    expect(text).toBe(
+      'A later count, dated Nov 3, 2026, no longer matches. Enter again every count dated after Oct 1, 2026, oldest first. ' +
+        'A count that answers "nothing to correct" is fine: it means stock is right.',
+    );
+    expect(text).not.toContain('on or after');
   });
 });

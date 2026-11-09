@@ -123,6 +123,39 @@ export interface PurchaseResult {
   ingredient: Ingredient;
 }
 
+/** One ledger line on the owner's ingredient page. Averages are in 1/10,000 centavo per base unit. */
+export interface Movement {
+  id: number;
+  kind: 'opening' | 'purchase' | 'purchase_reversal' | 'run_use' | 'void_return' | 'spillage' | 'spoilage' | 'count_correction';
+  effectiveDate: string;
+  /** Signed change in on hand, thousandths of the base unit. */
+  quantityMilli: number;
+  totalCostCents: number | null;
+  unitPriceE4: number | null;
+  supplier: string;
+  reference: string;
+  expiryDate: string | null;
+  reason: string;
+  enteredByName: string;
+  enteredAt: string;
+  reversedById: number | null;
+  reversesMovementId: number | null;
+  runId: number | null;
+  unitCostE4: number | null;
+  /** Null for a line that was undone and for its reversal. */
+  onHandAfterMilli: number | null;
+  averageAfterE4: number | null;
+  /** Date of the oldest count, entered before this line and dated on or after it, that no longer matches (D-44); null when none. */
+  needsRecount: string | null;
+}
+
+export interface MovementHistory {
+  ingredient: Ingredient;
+  /** By date, then by entry: oldest first. */
+  movements: Movement[];
+  reversibleMovementId: number | null;
+}
+
 export interface Product {
   id: number;
   code: string;

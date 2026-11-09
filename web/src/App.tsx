@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Account } from './pages/Account';
 import { Admin } from './pages/Admin';
 import { Expiry } from './pages/Expiry';
+import { IngredientDetail } from './pages/IngredientDetail';
 import { Ingredients } from './pages/Ingredients';
 import { Login } from './pages/Login';
 import { Margins } from './pages/Margins';
@@ -100,6 +101,7 @@ export function App() {
               <Route path="/margins" element={<Margins />} />
               <Route path="/products" element={<Products />} />
               <Route path="/ingredients" element={<Ingredients />} />
+              <Route path="/ingredients/:id" element={<IngredientDetail />} />
               {isOwner && <Route path="/team" element={<Team />} />}
             </>
           )}

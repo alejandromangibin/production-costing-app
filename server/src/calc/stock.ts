@@ -62,6 +62,11 @@ export interface LedgerLine extends StockEntry {
   reversesMovementId: number | null;
 }
 
+/** An entry's own price per base unit, in e4: total x 10^7 / quantity, half up. Used for the average and for the price history. */
+export function unitPriceE4(totalCostCents: number, quantityMilli: number): number {
+  return Number(divRoundHalfUp(BigInt(totalCostCents) * SCALE, BigInt(quantityMilli)));
+}
+
 export const EMPTY_STOCK: Readonly<StockState> = Object.freeze({ onHandMilli: 0, avgE4: null });
 
 /** The sign each kind's quantity has (design note 1.4), and whether zero is allowed. Null: either sign, never zero. */
@@ -166,7 +171,7 @@ export function applyEntry(state: StockState, entry: StockEntry): StockState {
   const avg =
     onHand > 0n && state.avgE4 !== null
       ? divRoundHalfUp(onHand * BigInt(state.avgE4) + totalScaled, onHand + qty)
-      : divRoundHalfUp(totalScaled, qty);
+      : BigInt(unitPriceE4(entry.totalCostCents!, entry.quantityMilli));
   if (avg < 0n || avg > BigInt(MAX_AVG_E4)) throw new Error('The average is outside its limits.');
   return { onHandMilli: newOnHand, avgE4: Number(avg) };
 }

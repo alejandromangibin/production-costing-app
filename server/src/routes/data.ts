@@ -4,6 +4,7 @@ import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
 import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, reversalBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { movementHistory } from '../services/stockHistory';
 import { recordCorrection, recordOpening, recordPurchase, reverseEntry } from '../services/stockLedger';
 import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
 import { addPackSize, createProduct, getProduct, listPackSizeChanges, listProducts, updatePackSize, updateProduct } from '../services/products';
@@ -86,6 +87,14 @@ export function dataRoutes(kit: AuthKit) {
   });
   r.post('/ingredients/:id/corrections', kit.requireOwner, write, async (req, res) => {
     res.status(201).json(await recordCorrection(req.tdb!, id(req.params.id), correctionBody.parse(req.body), actor(req)));
+  });
+
+  // The price history and every stock change, with the average after each. Owner only: staff never see prices (design note 6).
+  r.get('/ingredients/:id/movements', kit.requireOwner, async (req, res) => {
+    const ingredientId = id(req.params.id);
+    // The history takes a share lock on the ingredient first, so no stock change can commit between its header and its lines
+    // (a plain transaction would not: PostgreSQL's default level, read committed, sees each statement afresh).
+    res.json(await req.tdb!.tx((q) => movementHistory(q, ingredientId)));
   });
 
   r.post('/ingredients/:id/movements/:movementId/reversal', kit.requireOwner, write, async (req, res) => {
