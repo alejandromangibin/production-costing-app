@@ -2,7 +2,8 @@
 # Run (needs a PostgreSQL DATABASE_URL, see DEPLOY.md):
 #   docker run -p 3001:3001 --env-file .env.production production-costing
 
-FROM node:22-slim
+# Pinned to an exact Node version so the Node version cannot change on its own (the image still gets OS updates); updating Node is a deliberate step (check, test, then change this line).
+FROM node:22.23.4-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
