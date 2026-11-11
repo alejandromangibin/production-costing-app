@@ -85,6 +85,9 @@ export function createApp(db: Db, opts: AppOptions = {}) {
       res.status(400).json({ error: 'The request was not valid JSON.' });
     } else if (err?.type === 'entity.too.large') {
       res.status(413).json({ error: 'That request is too large.' });
+    } else if (err?.expose === true && err.status >= 400 && err.status < 500) {
+      // Other client mistakes reported by middleware (the body parser: bad or unsupported compression or charset; static files: a failed precondition).
+      res.status(err.status).json({ error: 'The request could not be read.' });
     } else if (err?.code === '23505') {
       res.status(409).json({ error: 'That already exists.' });
     } else if (err?.code === '40P01') {

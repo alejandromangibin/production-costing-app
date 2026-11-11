@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { FailureLimiter } from '../src/auth/rateLimit';
@@ -21,6 +22,8 @@ afterAll(async () => {
   await db?.close();
 });
 
+// Stops supertest turning a Buffer into JSON, so the raw (compressed) bytes are sent as they are.
+const keepBytes = ((b: Buffer) => b) as unknown as (body: unknown) => string;
 const tokenOf = (url: string) => new URL(url).searchParams.get('token')!;
 
 describe('passwords', () => {
@@ -96,6 +99,44 @@ describe('login', () => {
     const { email } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
     const r = await request(app).post('/api/auth/login').send({ email: `  ${email.toUpperCase()} `, password: PASSWORD });
     expect(r.status).toBe(200);
+  });
+
+  // The three tests below check that compressed request bodies are still handled sensibly.
+  // They are NOT proof that the body-parser advisory is fixed; the version guard in
+  // tests/dependencies.test.ts covers that.
+  it('still reads a JSON body sent gzip-compressed', async () => {
+    const { email } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
+    const body = gzipSync(JSON.stringify({ email, password: PASSWORD }));
+    const r = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('Content-Encoding', 'gzip')
+      .serialize(keepBytes)
+      .send(body);
+    expect(r.status).toBe(200);
+  });
+
+  it('answers 400 for a body that says it is gzip but is not, and keeps working', async () => {
+    const r = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('Content-Encoding', 'gzip')
+      .serialize(keepBytes)
+      .send(Buffer.from('this is not gzip data'));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('The request could not be read.');
+    expect((await request(app).get('/api/auth/me')).status).toBe(401);
+  });
+
+  it('answers 415 for a content encoding it does not support', async () => {
+    const r = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('Content-Encoding', 'compress')
+      .serialize(keepBytes)
+      .send(Buffer.from('anything'));
+    expect(r.status).toBe(415);
+    expect(r.body.error).toBe('The request could not be read.');
   });
 
   it('locks out repeated wrong passwords for that email, then recovers after a right one elsewhere', async () => {
