@@ -4,6 +4,15 @@ import { notFound } from '../errors';
 import { type IngredientWithCost, getIngredientWithCost } from './ingredients';
 import { reversibleMovementId } from './stockLedger';
 
+/** One earlier version of a purchase's supplier, reference and expiry date, with who corrected it and when (INV-17). */
+export interface DetailChangeView {
+  supplier: string;
+  reference: string;
+  expiryDate: string | null;
+  changedByName: string;
+  changedAt: string;
+}
+
 /** One ledger line as the owner's history screens show it (INV-10, INV-08). */
 export interface MovementView {
   id: number;
@@ -37,6 +46,8 @@ export interface MovementView {
    * ledger (D-44): counts need entering again from there, oldest first. Otherwise null.
    */
   needsRecount: string | null;
+  /** Purchases only: the values before each correction of the details, oldest first. Empty when never corrected. */
+  detailChanges: DetailChangeView[];
 }
 
 export interface MovementHistory {
@@ -98,6 +109,27 @@ export async function movementHistory(q: Queryable, ingredientId: number): Promi
     )
   ).rows;
 
+  const changeRows = (
+    await q.query(
+      `SELECT c.movement_id, c.supplier, c.reference, c.expiry_date::text AS expiry_date, c.changed_by_name, c.changed_at::text AS changed_at
+       FROM purchase_detail_changes c JOIN stock_movements m ON m.id = c.movement_id
+       WHERE m.ingredient_id = $1 ORDER BY c.id`,
+      [ingredientId],
+    )
+  ).rows;
+  const changesByMovement = new Map<number, DetailChangeView[]>();
+  for (const c of changeRows) {
+    const list = changesByMovement.get(c.movement_id as number) ?? [];
+    list.push({
+      supplier: c.supplier as string,
+      reference: c.reference as string,
+      expiryDate: (c.expiry_date as string | null) ?? null,
+      changedByName: c.changed_by_name as string,
+      changedAt: c.changed_at as string,
+    });
+    changesByMovement.set(c.movement_id as number, list);
+  }
+
   const ledger: LedgerLine[] = rows.map((r) => ({
     id: r.id as number,
     kind: r.kind as MovementKind,
@@ -139,6 +171,7 @@ export async function movementHistory(q: Queryable, ingredientId: number): Promi
       onHandAfterMilli: step ? step.onHandMilli : null,
       averageAfterE4: step ? step.avgE4 : null,
       needsRecount: cancelled ? null : needsRecountDate(line, outOfDate),
+      detailChanges: changesByMovement.get(id) ?? [],
     };
   });
   movements.sort(compareLedgerOrder);

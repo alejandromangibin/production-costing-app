@@ -147,6 +147,17 @@ export interface Movement {
   averageAfterE4: number | null;
   /** Date of the oldest count, entered before this line and dated on or after it, that no longer matches (D-44); null when none. */
   needsRecount: string | null;
+  /** Purchases only: the values before each correction of the details (INV-17), oldest first. */
+  detailChanges: DetailChange[];
+}
+
+/** The supplier, reference and expiry date a purchase had before one correction, with who made it and when. */
+export interface DetailChange {
+  supplier: string;
+  reference: string;
+  expiryDate: string | null;
+  changedByName: string;
+  changedAt: string;
 }
 
 export interface MovementHistory {

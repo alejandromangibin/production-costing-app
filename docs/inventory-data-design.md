@@ -192,6 +192,11 @@ The server refuses a correction:
 - on a purchase that has been reversed;
 - that changes nothing ("nothing to change"). This way no empty audit rows are ever written.
 
+(P4-35, Nov 12, 2026) The route is `PATCH /api/ingredients/:id/movements/:movementId/details` (owner only). The body must hold all
+three of `supplier`, `reference` and `expiryDate` (the expiry may be null); a missing one is a 400 and nothing changes, so a
+correction can never blank a field by leaving it out. Refusals: not a purchase (400), reversed (409), nothing to change (400),
+a line that is not this ingredient's or not this business's (404), staff (403). It is allowed on an archived ingredient (Q50).
+
 ## 2. Numbers and the stock maths (P4-05)
 
 ### 2.1 Units, limits and precision
@@ -346,8 +351,10 @@ history does (P2-06b). These are the rules:
    and the ledger are read only after the lock.
 2. **Never lock an existing `runs` row after locking ingredient rows.** The order is always: the run first
    (void only), then the ingredients.
-3. **Purchase, opening, correction, reversal, detail correction:** lock the ingredient, check the rules,
+3. **Purchase, opening, correction, reversal:** lock the ingredient, check the rules,
    insert the line, then fast path or replay (2.3), and commit.
+   **Detail correction (P4-35):** lock the ingredient, check the rules, write the audit row and update the three
+   columns, and commit. It adds no ledger line and does no replay.
 4. **Saving a run:** lock every ingredient on the run, re-price each line from the locked average, check the
    blocks (2.5), and compare the prices with the ones the person reviewed (below).
    - If they differ, refuse with **409, "Ingredient prices changed since you reviewed this run. Review it

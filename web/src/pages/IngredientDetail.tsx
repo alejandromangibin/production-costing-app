@@ -15,7 +15,9 @@ import {
   correctionWarnings,
   isNothingToCorrect,
   movementLabel,
+  isNothingToChange,
   overAYearAgo,
+  purchaseWarnings,
   quantityText,
   recountNotice,
   type BaseUnit,
@@ -68,11 +70,13 @@ function OwnerView({ ingredientId }: { ingredientId: number }) {
   const { data, error, loading, reload } = useLoad(() => api.get<MovementHistory>(`/ingredients/${ingredientId}/movements`), [ingredientId]);
   const [form, setForm] = useState<CorrectionKind | null>(null);
   const [reversing, setReversing] = useState<number | null>(null);
-  const [saved, setSaved] = useState<{ tone: 'good' | 'warn'; text: string } | null>(null);
+  const [correcting, setCorrecting] = useState<number | null>(null);
+  const [saved, setSaved] = useState<{ tone: 'good' | 'warn' | 'neutral'; text: string } | null>(null);
 
-  const done = (text: string, tone: 'good' | 'warn' = 'good') => {
+  const done = (text: string, tone: 'good' | 'warn' | 'neutral' = 'good') => {
     setForm(null);
     setReversing(null);
+    setCorrecting(null);
     setSaved({ tone, text });
     reload();
   };
@@ -149,7 +153,7 @@ function OwnerView({ ingredientId }: { ingredientId: number }) {
         <>
           <div>
             {kinds.map((k) => (
-              <button key={k} className={form === k ? 'primary' : ''} onClick={() => { setSaved(null); setForm(form === k ? null : k); }}>
+              <button key={k} className={form === k ? 'primary' : ''} onClick={() => { setSaved(null); setReversing(null); setCorrecting(null); setForm(form === k ? null : k); }}>
                 {FORM_NAMES[k]}
               </button>
             ))}
@@ -236,8 +240,11 @@ function OwnerView({ ingredientId }: { ingredientId: number }) {
                   baseUnit={unit}
                   canReverse={canWrite && m.id === reversibleMovementId}
                   isReversing={reversing === m.id}
-                  onReverse={() => { setSaved(null); setReversing(m.id); }}
-                  onCancel={() => setReversing(null)}
+                  onReverse={() => { setSaved(null); setForm(null); setCorrecting(null); setReversing(m.id); }}
+                  canCorrect={canWrite && m.kind === 'purchase' && m.reversedById === null}
+                  isCorrecting={correcting === m.id}
+                  onCorrect={() => { setSaved(null); setForm(null); setReversing(null); setCorrecting(m.id); }}
+                  onCancel={() => { setReversing(null); setCorrecting(null); }}
                   ingredientId={ingredient.id}
                   onDone={done}
                 />
@@ -255,10 +262,13 @@ function MovementRow(props: {
   baseUnit: BaseUnit;
   canReverse: boolean;
   isReversing: boolean;
+  canCorrect: boolean;
+  isCorrecting: boolean;
   ingredientId: number;
   onReverse: () => void;
+  onCorrect: () => void;
   onCancel: () => void;
-  onDone: (text: string) => void;
+  onDone: (text: string, tone?: 'good' | 'warn' | 'neutral') => void;
 }) {
   const { m, baseUnit } = props;
   return (
@@ -269,6 +279,19 @@ function MovementRow(props: {
           {movementLabel(m.kind)}
           {m.reversedById !== null && <> <Badge tone="muted">Reversed</Badge></>}
           {m.reversesMovementId !== null && <> <Badge tone="muted">Undoes an earlier entry</Badge></>}
+          {m.detailChanges.length > 0 && (
+            <div className="hint">
+              Details corrected {m.detailChanges.length === 1 ? 'once' : `${m.detailChanges.length} times`}. Earlier values:
+              <ul>
+                {m.detailChanges.map((c, i) => (
+                  <li key={i}>
+                    {c.supplier || 'no supplier'}, {c.reference ? `reference ${c.reference}` : 'no reference'},{' '}
+                    {c.expiryDate ? `expiry ${dateText(c.expiryDate)}` : 'no expiry date'}. Corrected by {c.changedByName} on {dateText(c.changedAt)}.
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </td>
         <td className="num">{changeText(m.quantityMilli, baseUnit)}</td>
         <td className="num">{m.onHandAfterMilli === null ? '–' : quantityText(m.onHandAfterMilli, baseUnit)}</td>
@@ -282,6 +305,11 @@ function MovementRow(props: {
           <small className="muted">{dateText(m.enteredAt)}</small>
         </td>
         <td className="actions">
+          {props.canCorrect && !props.isCorrecting && (
+            <button className="link" onClick={props.onCorrect}>
+              Correct details
+            </button>
+          )}{' '}
           {props.canReverse && !props.isReversing && (
             <button className="link" onClick={props.onReverse}>
               Reverse
@@ -289,6 +317,13 @@ function MovementRow(props: {
           )}
         </td>
       </tr>
+      {props.isCorrecting && (
+        <tr>
+          <td colSpan={7}>
+            <DetailsForm m={m} canReverse={props.canReverse} ingredientId={props.ingredientId} onDone={props.onDone} onCancel={props.onCancel} />
+          </td>
+        </tr>
+      )}
       {props.isReversing && (
         <tr>
           <td colSpan={7}>
@@ -297,6 +332,97 @@ function MovementRow(props: {
         </tr>
       )}
     </>
+  );
+}
+
+const NO_QUANTITY_CHANGE = 'Quantity and price can’t be changed here.';
+
+/** Correct a purchase's supplier, reference or expiry date (INV-17). Quantity and price are not offered: that is a reversal. */
+function DetailsForm({
+  m,
+  canReverse,
+  ingredientId,
+  onDone,
+  onCancel,
+}: {
+  m: Movement;
+  /** Whether this is the one entry that can be reversed now. */
+  canReverse: boolean;
+  ingredientId: number;
+  onDone: (text: string, tone?: 'good' | 'warn' | 'neutral') => void;
+  onCancel: () => void;
+}) {
+  const [supplier, setSupplier] = useState(m.supplier);
+  const [reference, setReference] = useState(m.reference);
+  const [expiry, setExpiry] = useState(m.expiryDate ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  const warnings = purchaseWarnings({ date: m.effectiveDate, expiryDate: expiry, lastCountDate: null, isOwner: true });
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patch(`/ingredients/${ingredientId}/movements/${m.id}/details`, {
+        supplier: supplier.trim(),
+        reference: reference.trim(),
+        expiryDate: expiry || null,
+      });
+      onDone(`Saved the corrected details of the purchase dated ${dateText(m.effectiveDate)}. The earlier values are kept below. Quantity, price and stock are unchanged.`);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not save.';
+      if (isNothingToChange(message)) {
+        onDone('Nothing to change: these details are the same as the ones already saved. Nothing was saved.', 'neutral');
+        return;
+      }
+      setError(message);
+      sending.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card" onSubmit={submit}>
+      <h3>Correct the details of the purchase dated {dateText(m.effectiveDate)}</h3>
+      <p className="hint">
+        {canReverse
+          ? NO_QUANTITY_CHANGE + ' This is the last entry made for this ingredient, so if they are wrong you can reverse it and enter it again.'
+          : NO_QUANTITY_CHANGE + ' Only the last entry made can be reversed, and this is not it. If the quantity is wrong, a stock count puts it right.'}
+      </p>
+      <div className="form-grid">
+        <label>
+          Supplier
+          <input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} autoFocus />
+        </label>
+        <label>
+          Reference
+          <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} />
+        </label>
+        <label>
+          Expiry date
+          <input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+          <small>Leave it empty if there is none.</small>
+        </label>
+      </div>
+      <div role="status" aria-live="polite">
+        {warnings.map((w) => (
+          <div key={w} className="note warn">
+            {w}
+          </div>
+        ))}
+      </div>
+      <ErrorNote message={error} />
+      <button className="primary" disabled={busy}>
+        {busy ? 'Saving…' : 'Save the details'}
+      </button>{' '}
+      <button type="button" onClick={onCancel} disabled={busy}>
+        Cancel
+      </button>
+    </form>
   );
 }
 

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { MovementHistory } from '../api';
 import { addDaysISO, dateText, todayIn } from '../format';
-import { movement, renderPage, soy } from '../test/helpers';
+import { meFor, movement, renderPage, soy } from '../test/helpers';
 import { IngredientDetail } from './IngredientDetail';
 
 // The owner's page for one ingredient: price history, stock changes and corrections (INV-10, INV-08).
@@ -271,5 +271,178 @@ describe('the correction forms', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Spillage' }));
     fireEvent.change(screen.getByLabelText('Date'), { target: { value: day(-35) } });
     expect(screen.queryByText(/dated on or before a count/)).toBeNull();
+  });
+});
+
+describe('correcting a purchase’s details (INV-17)', () => {
+  const key = 'PATCH /ingredients/1/movements/1/details';
+  const stockTable = () => within(screen.getAllByRole('table')[2]!);
+  const rowOf = (text: string) => stockTable().getAllByRole('row').find((r) => r.textContent?.includes(text))!;
+  const openFirst = () => fireEvent.click(within(rowOf(T1)).getByRole('button', { name: 'Correct details' }));
+  const saved = { status: 200, body: movement({ id: 1, kind: 'purchase', effectiveDate: D1, quantityMilli: 1_000_000 }) };
+
+  it('is offered on each purchase that is not reversed, and nowhere else', async () => {
+    await showDetail('owner');
+    expect(screen.getAllByRole('button', { name: 'Correct details' })).toHaveLength(2); // the two purchases, not the count
+    expect(within(rowOf('Monthly count')).queryByRole('button', { name: 'Correct details' })).toBeNull();
+  });
+
+  it('is not offered on a reversed purchase, on its reversal, or on an opening balance', async () => {
+    const reversed = [
+      movement({ id: 1, kind: 'purchase', effectiveDate: D1, quantityMilli: 1_000_000, totalCostCents: 10_000, unitPriceE4: 100_000, reversedById: 2 }),
+      movement({ id: 2, kind: 'purchase_reversal', effectiveDate: D1, quantityMilli: -1_000_000, reason: 'Wrong entry', reversesMovementId: 1 }),
+      movement({ id: 3, kind: 'opening', effectiveDate: D2, quantityMilli: 1_000, totalCostCents: 100, unitPriceE4: 1, reason: 'Opening balance' }),
+    ];
+    await showDetail('owner', history({ movements: reversed, reversibleMovementId: null }));
+    expect(screen.queryByRole('button', { name: 'Correct details' })).toBeNull();
+  });
+
+  it('is never offered to staff, nor to an account that cannot write right now', async () => {
+    const staffView = await showDetail('staff');
+    expect(screen.queryByRole('button', { name: 'Correct details' })).toBeNull();
+    staffView.unmount();
+    await showDetail('owner', history(), { 'GET /auth/me': () => ({ body: meFor('owner', 'read_only') }) });
+    expect(screen.getByRole('heading', { name: 'Stock changes' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Correct details' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reverse' })).toBeNull();
+  });
+
+  it('opens a form filled in with the current values, and says quantity and price cannot be changed', async () => {
+    await showDetail('owner');
+    openFirst();
+    expect((screen.getByLabelText('Supplier') as HTMLInputElement).value).toBe('Mang Tony');
+    expect((screen.getByLabelText('Reference') as HTMLInputElement).value).toBe('OR-7');
+    expect((screen.getByLabelText(/Expiry date/) as HTMLInputElement).value).toBe('');
+    expect(screen.getByText(/Quantity and price can’t be changed here\./)).toBeTruthy();
+    expect(screen.queryByLabelText(/Quantity/)).toBeNull();
+  });
+
+  it('on a line that cannot be reversed, says only the last entry can be, and points to a stock count', async () => {
+    await showDetail('owner'); // the line dated 40 days ago is not the reversible one
+    openFirst();
+    const hint = screen.getByText(/Quantity and price can’t be changed here\./);
+    expect(hint.textContent).toBe('Quantity and price can’t be changed here. Only the last entry made can be reversed, and this is not it. If the quantity is wrong, a stock count puts it right.');
+  });
+
+  it('on the line that can be reversed, says it can be reversed and entered again', async () => {
+    await showDetail('owner');
+    fireEvent.click(within(rowOf(T2)).getByRole('button', { name: 'Correct details' })); // reversibleMovementId is this line
+    const hint = screen.getByText(/Quantity and price can’t be changed here\./);
+    expect(hint.textContent).toBe('Quantity and price can’t be changed here. This is the last entry made for this ingredient, so if they are wrong you can reverse it and enter it again.');
+    expect(hint.textContent).not.toContain('stock count');
+  });
+
+  it('sends one PATCH with the right body when the form is submitted twice, then says what was saved', async () => {
+    let finish!: () => void;
+    const { server } = await showDetail('owner', history(), { [key]: () => new Promise<any>((resolve) => (finish = () => resolve(saved))) });
+    openFirst();
+    fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: '  Aling Rosa ' } });
+    fireEvent.change(screen.getByLabelText('Reference'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText(/Expiry date/), { target: { value: day(20) } });
+    const form = screen.getByRole('button', { name: 'Save the details' }).closest('form')!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(server.count(key)).toBe(1);
+    finish();
+    expect(await screen.findByText(new RegExp(`Saved the corrected details of the purchase dated ${T1}`))).toBeTruthy();
+    expect(server.count(key)).toBe(1);
+    expect(server.bodies[key]).toEqual([{ supplier: 'Aling Rosa', reference: '', expiryDate: day(20) }]);
+  });
+
+  it('sends a cleared expiry date as null', async () => {
+    const withExpiry = history({ movements: [{ ...lines[0]!, expiryDate: day(30) }, ...lines.slice(1)] });
+    const { server } = await showDetail('owner', withExpiry, { [key]: () => saved });
+    openFirst();
+    expect((screen.getByLabelText(/Expiry date/) as HTMLInputElement).value).toBe(day(30));
+    fireEvent.change(screen.getByLabelText(/Expiry date/), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the details' }));
+    await waitFor(() => expect(server.count(key)).toBe(1));
+    expect(server.bodies[key]).toEqual([{ supplier: 'Mang Tony', reference: 'OR-7', expiryDate: null }]);
+  });
+
+  it('warns when the expiry is before the purchase date (D-40) and still saves', async () => {
+    const { server } = await showDetail('owner', history(), { [key]: () => saved });
+    openFirst();
+    expect(screen.queryByText(/The expiry date is before the purchase date/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Expiry date/), { target: { value: day(-45) } });
+    expect(screen.getByText(/The expiry date is before the purchase date\. Check both dates\. You can still save it if they are right\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save the details' }));
+    await waitFor(() => expect(server.count(key)).toBe(1));
+    expect(server.bodies[key]).toEqual([{ supplier: 'Mang Tony', reference: 'OR-7', expiryDate: day(-45) }]);
+  });
+
+  it('shows "Nothing to change" as a neutral note, not an error', async () => {
+    const { container } = await showDetail('owner', history(), {
+      [key]: () => ({ status: 400, body: { error: 'Nothing to change: these details are the same as the ones already saved.' } }),
+    });
+    openFirst();
+    fireEvent.click(screen.getByRole('button', { name: 'Save the details' }));
+    const note = await screen.findByText(/Nothing to change: these details are the same as the ones already saved\. Nothing was saved\./);
+    expect(note.className).toContain('note neutral');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.querySelector('.note.error')).toBeNull();
+    expect(screen.queryByLabelText('Supplier')).toBeNull(); // the form has closed
+  });
+
+  it('shows another refusal as an error and keeps the form open', async () => {
+    await showDetail('owner', history(), {
+      [key]: () => ({ status: 409, body: { error: 'This purchase has been reversed, so its details can no longer be corrected.' } }),
+    });
+    openFirst();
+    fireEvent.click(screen.getByRole('button', { name: 'Save the details' }));
+    expect(await screen.findByText(/This purchase has been reversed/)).toBeTruthy();
+    expect(screen.getByLabelText('Supplier')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Save the details' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shows the earlier values, who corrected them and when, after a correction', async () => {
+    let corrected = false;
+    const changed = movement({
+      ...lines[0]!, supplier: 'Aling Rosa',
+      detailChanges: [{ supplier: 'Mang Tony', reference: 'OR-7', expiryDate: null, changedByName: 'Olga Owner', changedAt: '2026-11-10 09:30:00+08' }],
+    });
+    const { server } = await showDetail('owner', history(), {
+      'GET /ingredients/1/movements': () => ({ body: history({ movements: corrected ? [changed, ...lines.slice(1)] : lines }) }),
+      [key]: () => { corrected = true; return saved; },
+    });
+    expect(screen.queryByText(/Details corrected/)).toBeNull();
+    openFirst();
+    fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: 'Aling Rosa' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save the details' }));
+    expect(await screen.findByText(/Details corrected once\. Earlier values:/)).toBeTruthy();
+    const item = screen.getByText(/Corrected by Olga Owner/);
+    expect(item.textContent).toContain('Mang Tony, reference OR-7, no expiry date.');
+    expect(item.textContent).toContain(dateText('2026-11-10'));
+    expect(server.count(key)).toBe(1);
+    // The price history shows the current supplier.
+    expect(within(screen.getAllByRole('table')[1]!).getByText('Aling Rosa')).toBeTruthy();
+  });
+
+  it('keeps one form open at a time: correcting closes a count form, reversing and each other, and the reverse', async () => {
+    await showDetail('owner');
+    fireEvent.click(screen.getByRole('button', { name: 'Stock count' }));
+    expect(screen.getByRole('button', { name: 'Save stock count' })).toBeTruthy();
+    openFirst(); // the count form closes
+    expect(screen.queryByRole('button', { name: 'Save stock count' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save the details' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reverse' })); // the details form closes
+    expect(screen.queryByRole('button', { name: 'Save the details' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Yes, reverse it' })).toBeTruthy();
+
+    openFirst(); // the reverse form closes
+    expect(screen.queryByRole('button', { name: 'Yes, reverse it' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save the details' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spillage' })); // the details form closes
+    expect(screen.queryByRole('button', { name: 'Save the details' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save spillage' })).toBeTruthy();
+  });
+
+  it('says how many times when corrected more than once', async () => {
+    const change = { supplier: 'A', reference: '', expiryDate: null, changedByName: 'Olga Owner', changedAt: '2026-11-10 09:30:00+08' };
+    await showDetail('owner', history({ movements: [{ ...lines[0]!, detailChanges: [change, { ...change, supplier: 'B' }] }, ...lines.slice(1)] }));
+    expect(screen.getByText(/Details corrected 2 times\./)).toBeTruthy();
+    expect(screen.getByText(/^A, no reference, no expiry date\./)).toBeTruthy();
   });
 });

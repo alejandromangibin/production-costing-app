@@ -314,6 +314,29 @@ describe('the database itself enforces the wall', () => {
       );
     });
 
+    it("purchase details (INV-17): another business cannot correct them, even with no business filter in the statement", async () => {
+      const [a, b] = [scopedDb(db, aId), scopedDb(db, bId)];
+      const ingredientOfA = await addIngredient(a);
+      const line = await addPurchase(a, ingredientOfA);
+      // No WHERE on the business at all: only row-level security stands in the way, and it hides A's line from B.
+      const changed = await b.query(`UPDATE stock_movements SET supplier = 'Hacked', reference = 'Hacked', expiry_date = '2027-01-01' RETURNING id`);
+      expect(changed.rows).toEqual([]);
+      const byId = await b.query(`UPDATE stock_movements SET supplier = 'Hacked' WHERE id = $1 RETURNING id`, [line]);
+      expect(byId.rows).toEqual([]);
+      // With no business set at all, the app role changes nothing either.
+      const noBusiness = await db.tx(async (q) => {
+        await q.exec('SET LOCAL ROLE costing_app');
+        return q.query(`UPDATE stock_movements SET supplier = 'Hacked' RETURNING id`);
+      });
+      expect(noBusiness.rows).toEqual([]);
+      expect((await a.query<{ supplier: string }>('SELECT supplier FROM stock_movements WHERE id = $1', [line])).rows[0]!.supplier).toBe('');
+      // B cannot read A's correction history with no filter either.
+      await a.query(`INSERT INTO purchase_detail_changes (movement_id, supplier, reference, changed_by_user_id, changed_by_name) VALUES ($1, '', '', ${owner})`, [line]);
+      expect((await b.query('SELECT id FROM purchase_detail_changes')).rows).toEqual([]);
+      // Through the app: B's owner is told the line does not exist.
+      expect((await B.patch(`/api/ingredients/${ingredientOfA}/movements/${line}/details`).send({ supplier: 'Hacked', reference: '', expiryDate: null })).status).toBe(404);
+    });
+
     it('with no business set, nothing in the new tables can be seen or added', async () => {
       const a = scopedDb(db, aId);
       await a.query('INSERT INTO business_settings DEFAULT VALUES');

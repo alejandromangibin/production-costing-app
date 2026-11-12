@@ -138,6 +138,7 @@ export function movement(partial: Partial<Movement> & Pick<Movement, 'id' | 'kin
     onHandAfterMilli: null,
     averageAfterE4: null,
     needsRecount: null,
+    detailChanges: [],
     ...partial,
   };
 }

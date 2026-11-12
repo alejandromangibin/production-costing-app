@@ -4,6 +4,7 @@ import { addDays, localToday } from '../src/dates';
 import type { Db, Queryable } from '../src/db/index';
 import { scopedDb } from '../src/db/scoped';
 import { createIngredient, getIngredient, updateIngredient } from '../src/services/ingredients';
+import { correctPurchaseDetails } from '../src/services/purchaseDetails';
 import { type LockedIngredient, type NewLine, addLedgerLine, lockIngredients, recordCorrection, recordOpening, recordPurchase, reverseEntry } from '../src/services/stockLedger';
 import { type Agent, type App, createBusiness, makeApp, openTestDb, resetData } from './helpers';
 
@@ -327,6 +328,55 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('two people at once, on a real P
         expect(undo.reason.message).toBe('Only the last entry made for this ingredient can be reversed. Use a count correction instead.');
       }
       expect((await stored()).onHandMilli).toBe(undo.status === 'fulfilled' ? 200_000 : 300_000);
+    });
+  });
+
+  describe("correcting a purchase's details (INV-17)", () => {
+    const bought = () =>
+      track(recordPurchase(scoped, soy, { effectiveDate: today(), quantity: '100', unit: 'mL', totalCostCents: 1000, supplier: 'Mang Tony', reference: 'OR-7' }, actor, true)).then((r) => r.movementId);
+    const details = (supplier: string, reference: string, expiryDate: string | null) => ({ supplier, reference, expiryDate });
+    const auditRows = async () =>
+      (await scoped.query<any>(`SELECT supplier, reference, expiry_date::text AS expiry_date FROM purchase_detail_changes ORDER BY id`)).rows;
+    const current = async (id: number) =>
+      (await scoped.query<any>(`SELECT supplier, reference, expiry_date::text AS expiry_date FROM stock_movements WHERE id = $1`, [id])).rows[0];
+
+    it('refuses a correction that had to wait for a reversal of the same purchase, and writes no audit row', async () => {
+      const movementId = await bought();
+      const first = hold([soy], async (q, locked) =>
+        addLedgerLine(q, locked.get(soy)!, { kind: 'purchase_reversal', quantityMilli: -100_000, totalCostCents: null, effectiveDate: today(), reason: 'Wrong entry', reversesMovementId: movementId }, actor),
+      );
+      await first.ready;
+      const outcome = track(correctPurchaseDetails(scoped, soy, movementId, details('Aling Rosa', 'OR-7', null), actor)).then(() => 'corrected', (e) => e.message);
+      await someoneIsWaiting();
+      first.release();
+      await first.done;
+      expect(await outcome).toBe('This purchase has been reversed, so its details can no longer be corrected.');
+      expect(await auditRows()).toEqual([]);
+      expect(await current(movementId)).toEqual({ supplier: 'Mang Tony', reference: 'OR-7', expiry_date: null });
+    });
+
+    it("makes the second of two corrections of the same line wait, and keeps the first one's new values in its audit row", async () => {
+      const movementId = await bought();
+      const first = hold([soy], async (q) => {
+        await q.query(
+          `INSERT INTO purchase_detail_changes (movement_id, supplier, reference, expiry_date, changed_by_user_id, changed_by_name)
+           VALUES ($1, 'Mang Tony', 'OR-7', NULL, 1, 'Owner')`,
+          [movementId],
+        );
+        await q.query(`UPDATE stock_movements SET supplier = 'First', reference = 'R1', expiry_date = '2027-01-01' WHERE id = $1`, [movementId]);
+      });
+      await first.ready;
+      const outcome = track(correctPurchaseDetails(scoped, soy, movementId, details('Second', 'R2', null), actor)).then(() => 'corrected', (e) => e.message);
+      await someoneIsWaiting();
+      first.release();
+      await first.done;
+      expect(await outcome).toBe('corrected');
+      expect(await auditRows()).toEqual([
+        { supplier: 'Mang Tony', reference: 'OR-7', expiry_date: null },
+        { supplier: 'First', reference: 'R1', expiry_date: '2027-01-01' },
+      ]);
+      expect(await current(movementId)).toEqual({ supplier: 'Second', reference: 'R2', expiry_date: null });
+      await expectCopyMatchesLedger();
     });
   });
 

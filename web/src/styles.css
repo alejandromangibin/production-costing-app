@@ -433,6 +433,10 @@ tr.row-warn td {
   color: var(--good);
   border-color: #b5dec6;
 }
+.note.neutral {
+  background: var(--bg);
+  border-color: var(--line);
+}
 .note.confirm {
   background: #fff;
   border-color: var(--brand);

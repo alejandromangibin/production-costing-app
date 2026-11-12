@@ -3,7 +3,8 @@ import type { AuthKit } from '../auth/middleware';
 import { exportTenant } from '../backup';
 import { localToday } from '../dates';
 import { badRequest } from '../errors';
-import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, reversalBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { correctionBody, ingredientCreate, ingredientUpdate, openingBody, packSizeCreate, packSizeUpdate, productCreate, productUpdate, purchaseBody, purchaseDetailsBody, reversalBody, runBody, runsQuery, todayQuery, voidBody } from '../schemas';
+import { correctPurchaseDetails } from '../services/purchaseDetails';
 import { movementHistory } from '../services/stockHistory';
 import { recordCorrection, recordOpening, recordPurchase, reverseEntry } from '../services/stockLedger';
 import { createIngredient, getIngredient, getIngredientWithCost, listIngredients, listIngredientsWithCost, updateIngredient } from '../services/ingredients';
@@ -100,6 +101,12 @@ export function dataRoutes(kit: AuthKit) {
   r.post('/ingredients/:id/movements/:movementId/reversal', kit.requireOwner, write, async (req, res) => {
     const body = reversalBody.parse(req.body);
     res.status(201).json(await reverseEntry(req.tdb!, id(req.params.id), id(req.params.movementId), body, actor(req)));
+  });
+
+  // The owner corrects a purchase's supplier, reference or expiry date (INV-17). Quantity and price cannot be changed: reverse instead.
+  r.patch('/ingredients/:id/movements/:movementId/details', kit.requireOwner, write, async (req, res) => {
+    const body = purchaseDetailsBody.parse(req.body);
+    res.json(await correctPurchaseDetails(req.tdb!, id(req.params.id), id(req.params.movementId), body, actor(req)));
   });
 
   // ---- Runs ----

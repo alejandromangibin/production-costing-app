@@ -196,6 +196,11 @@ export function correctionSavedText(input: {
   }
 }
 
+/** The server's answer to a detail correction that changes nothing. Not an error: nothing was saved, and nothing was wrong. */
+export function isNothingToChange(message: string): boolean {
+  return message.startsWith('Nothing to change');
+}
+
 /** The server's answer to a count that matches the recorded stock. It means stock is right, so it is not shown as an error. */
 export function isNothingToCorrect(message: string): boolean {
   return message.startsWith('Nothing to correct');

@@ -70,15 +70,37 @@ export const ingredientUpdate = z.object({
 /** A date the database can hold. Back-dating has no limit (Q45), but there is no year 0. */
 const stockDate = dateOnly.refine((s) => s >= '0001-01-01', 'That date is too far back');
 
+/** Text of at most 120 characters. `missing` words the answer when the key is not sent at all; it must not replace the other messages. */
+const supplierText = (missing?: string) =>
+  plainText(z.string({ error: (issue) => (missing && issue.input === undefined ? missing : undefined) }).trim().max(120, 'At most 120 characters'));
+/** The three purchase details the owner may correct later (INV-17). A purchase and its correction share these rules. */
+const purchaseDetailFields = {
+  supplier: supplierText().default(''),
+  reference: supplierText().default(''),
+  expiryDate: stockDate.nullable().optional(),
+};
+
 export const purchaseBody = z.object({
   effectiveDate: stockDate,
   // As typed: it is turned into thousandths of the base unit after the ingredient is locked (Q42).
   quantity: z.string().max(30),
   unit: z.enum(['g', 'mL', 'pc', 'kg', 'L']),
   totalCostCents: cents,
-  supplier: plainText(z.string().trim().max(120)).default(''),
-  reference: plainText(z.string().trim().max(120)).default(''),
+  ...purchaseDetailFields,
+});
+
+/**
+ * Correcting a purchase's details (INV-17): only these three, and all three must be sent, so a correction can never blank a
+ * field by leaving it out. Empty text and a null expiry are fine. The values follow the same rules as on a purchase.
+ * Quantity and price are never part of it.
+ */
+export const purchaseDetailsBody = z.object({
+  supplier: supplierText('Send the supplier (empty text if there is none)'),
+  reference: supplierText('Send the reference (empty text if there is none)'),
   expiryDate: stockDate.nullable().optional(),
+}).superRefine((body, ctx) => {
+  // A missing key is not the same as null: the owner must say there is no expiry date.
+  if (body.expiryDate === undefined) ctx.addIssue({ code: 'custom', path: ['expiryDate'], message: 'Send the expiry date (null if there is none)' });
 });
 
 /** A reason may run over several lines, so line breaks and tabs stay; other hidden characters do not. */
