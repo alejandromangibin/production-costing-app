@@ -43,7 +43,8 @@ export function createApp(db: Db, opts: AppOptions = {}) {
   });
   // Only the web dev server needs this; a hosted app serves its own pages, so it allows no other origin.
   if (corsOrigin) app.use(cors({ origin: corsOrigin, credentials: true }));
-  app.use(express.json({ limit: '1mb' }));
+  // D-54: compressed request bodies are refused (workaround for GHSA-27r3-jxmh-p828; body-parser 2.4.0 is the main fix).
+  app.use(express.json({ limit: '1mb', inflate: false }));
 
   const kit = createAuth(db, { cookieSecure, allowedOrigins: corsOrigin ? [corsOrigin] : [] });
 

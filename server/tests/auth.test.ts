@@ -1,6 +1,6 @@
-import { gzipSync } from 'node:zlib';
+import * as zlib from 'node:zlib';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FailureLimiter } from '../src/auth/rateLimit';
 import { checkNewPassword, hashPassword, verifyPassword } from '../src/auth/password';
 import type { Db } from '../src/db/index';
@@ -101,29 +101,67 @@ describe('login', () => {
     expect(r.status).toBe(200);
   });
 
-  // The three tests below check that compressed request bodies are still handled sensibly.
-  // They are NOT proof that the body-parser advisory is fixed; the version guard in
-  // tests/dependencies.test.ts covers that.
-  it('still reads a JSON body sent gzip-compressed', async () => {
+  // The tests below check how compressed request bodies are handled (the app refuses them,
+  // D-54: inflate is off). They are behaviour checks, NOT proof that the body-parser advisory
+  // is fixed; the version guard in tests/dependencies.test.ts covers that.
+  const loginBody = (email: string) => JSON.stringify({ email, password: PASSWORD });
+
+  // Real compressed bytes for each encoding, so every case proves the refusal on its own.
+  // zstd needs Node 22.15 or newer (we run 24 locally and 22.23.4 in Docker); left out of the list below if missing.
+  const compressors: Record<string, ((data: string) => Buffer) | undefined> = {
+    gzip: (d) => zlib.gzipSync(d),
+    deflate: (d) => zlib.deflateSync(d),
+    br: (d) => zlib.brotliCompressSync(d),
+    zstd: typeof zlib.zstdCompressSync === 'function' ? (d) => zlib.zstdCompressSync(d) : undefined,
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(['gzip', 'deflate', 'br', 'zstd', 'GZIP'].filter((e) => compressors[e.toLowerCase()]))('refuses a compressed (%s) login body with 415', async (encoding) => {
+    const compress = compressors[encoding.toLowerCase()]!;
     const { email } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
-    const body = gzipSync(JSON.stringify({ email, password: PASSWORD }));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await request(app)
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
-      .set('Content-Encoding', 'gzip')
+      .set('Content-Encoding', encoding)
       .serialize(keepBytes)
-      .send(body);
+      .send(compress(loginBody(email)));
+    expect(r.status).toBe(415);
+    expect(r.body.error).toBe('The request could not be read.');
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 for gzip bytes sent with no Content-Encoding header', async () => {
+    const { email } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
+    const r = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .serialize(keepBytes)
+      .send(zlib.gzipSync(loginBody(email)));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('The request was not valid JSON.');
+  });
+
+  it('still reads a JSON body sent with Content-Encoding: identity', async () => {
+    const { email } = await createBusiness(app, db, 'Frozen Foods', 'owner@a.test');
+    const r = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('Content-Encoding', 'identity')
+      .serialize(keepBytes)
+      .send(Buffer.from(loginBody(email)));
     expect(r.status).toBe(200);
   });
 
-  it('answers 400 for a body that says it is gzip but is not, and keeps working', async () => {
+  it('answers 415 for a body that says it is gzip but is not, and keeps working', async () => {
     const r = await request(app)
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('Content-Encoding', 'gzip')
       .serialize(keepBytes)
       .send(Buffer.from('this is not gzip data'));
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(415);
     expect(r.body.error).toBe('The request could not be read.');
     expect((await request(app).get('/api/auth/me')).status).toBe(401);
   });
